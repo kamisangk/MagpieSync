@@ -31,3 +31,26 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# MagpieSync runtime data
+/bin/
+/data/
+/media/
+/.magpiesync-tmp/
+/.tmp/
+qr.json
+*.db
+*.db-wal
+*.db-shm
+
+# Agent/runtime tooling, not part of the product
+/.agents/
+/.claude/
+/.codex/
+/.dsh/
+/.dsh-ops/
+/.qoder/
+/.trae/
+/.trellis/
+/AGENTS.md
+/.gitattributes
