@@ -34,6 +34,8 @@ go.work.sum
 
 # MagpieSync runtime data
 /bin/
+/dist/
+/temp/
 /data/
 /media/
 /.magpiesync-tmp/

@@ -1,0 +1,12 @@
+appname=magpiesync
+version=0.10.0
+display_name=MagpieSync
+desc=只读同步视频收藏并下载到本地媒体库
+maintainer=MagpieSync
+source=thirdparty
+platform=x86
+desktop_uidir=ui
+desktop_applaunchname=magpiesync.main
+service_port=8787
+ctl_stop=true
+checkport=true

@@ -1,0 +1,5 @@
+#!/bin/bash
+if [ -n "${TRIM_PKGVAR:-}" ] && [ -f "$TRIM_PKGVAR/magpiesync.pid" ]; then
+  "${TRIM_APPDEST}/cmd/main" stop || true
+fi
+exit 0
