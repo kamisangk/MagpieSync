@@ -54,3 +54,6 @@ qr.json
 /.trellis/
 /AGENTS.md
 /.gitattributes
+# Local Go caches used by sandboxed builds
+/.gocache/
+/.gotmp/

@@ -1,0 +1,16 @@
+.git
+.gitignore
+.trellis
+.agents
+.codex
+.dsh
+.dsh-ops
+.qoder
+bin
+data
+media
+.tmp
+qr.json
+*.db
+*.db-wal
+*.db-shm
