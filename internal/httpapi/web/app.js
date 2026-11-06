@@ -696,8 +696,9 @@ function switchView(view, options = {}) {
   }
 }
 
-/* 账户切换：按方案B放置在资料库/下载/同步记录页的操作区，总览/设置不显示 */
+/* Keep account context beside page level actions, including the task overview. */
 const ACCOUNT_ANCHORS = {
+  dashboard: { anchor: "#sync-all", after: false },
   library: { anchor: "#library-sync", after: true },
   downloads: { anchor: "#downloads-refresh", after: true },
   runs: { anchor: "#runs-refresh", after: true },
@@ -1003,8 +1004,8 @@ function renderStats(d) {
   ];
   el.innerHTML = rows.map(([label, value, unit]) => `
     <div class="ledger-row">
-      <dt class="ledger-label">${label}</dt>
-      <dd class="ledger-value">${value}<small>${unit}</small></dd>
+      <span class="ledger-label">${label}</span>
+      <span class="ledger-value">${value}<small>${unit}</small></span>
     </div>`).join("");
 }
 
@@ -1075,6 +1076,7 @@ function renderAttention() {
       text: "添加账户后才能同步收藏与播放列表，媒体仍保存在本机。",
       action: "manage",
       label: "连接站点",
+      priority: 0,
     });
   } else if (currentAccountNeedsReauth()) {
     issues.push({
@@ -1084,6 +1086,7 @@ function renderAttention() {
       action: "reauth",
       label: "重新登录",
       danger: true,
+      priority: 0,
     });
   }
   if (state.me && state.folders.length === 0 && !isSyncRunning()) {
@@ -1093,6 +1096,7 @@ function renderAttention() {
       text: "这个账户还没有发现收藏夹或其他来源。先同步一次，让站点返回可用库。",
       action: "sync",
       label: "开始同步",
+      priority: 2,
     });
   }
   const neverSynced = state.folders.filter((f) => !Number(f.last_full_sync_at)).length;
@@ -1103,6 +1107,7 @@ function renderAttention() {
       text: "同步后才会写入视频条目，并且可以按库浏览。",
       action: "sync",
       label: "同步此账户",
+      priority: 1,
     });
   }
   const failed = Number(state.downloadStats?.failed || 0);
@@ -1114,8 +1119,10 @@ function renderAttention() {
       action: "downloads-failed",
       label: "查看失败任务",
       danger: true,
+      priority: 0,
     });
   }
+  issues.sort((a, b) => a.priority - b.priority);
   if (!issues.length) {
     el.innerHTML = `
       <div class="attention-item ok">
@@ -1211,12 +1218,15 @@ function renderSourcePanelAddButton() {
 function renderSourcePanel() {
   const el = $("#source-list");
   if (!el) return;
+  const panel = $(".source-panel");
+  const site = currentSite();
+  panel?.classList.toggle("has-sources", !!(state.me && state.folders.length));
+  renderMobileSourceSelect(site);
   renderSourcePanelAddButton();
   if (state.libraryLoading) {
     el.innerHTML = `<div class="source-skeleton"><span></span><span></span><span></span><span></span></div>`;
     return;
   }
-  const site = currentSite();
   if (!state.me || !site) {
     el.innerHTML = `
       <div class="source-empty">
@@ -1265,6 +1275,29 @@ function renderSourcePanel() {
     </div>`).join("");
   el.innerHTML = all + html;
   bindSourceEvents(el);
+}
+
+function renderMobileSourceSelect(site) {
+  const select = $("#mobile-source-select");
+  if (!select) return;
+  const groups = sourceCategoryDefs(site).map((category) => ({ ...category, folders: [] }));
+  const other = { name: "其他", folders: [] };
+  for (const folder of state.folders) {
+    const categoryID = sourceCategoryOf(folder, site);
+    const group = groups.find((entry) => entry.id === categoryID);
+    (group || other).folders.push(folder);
+  }
+  if (other.folders.length) groups.push(other);
+
+  const options = [`<option value="0">全部视频</option>`];
+  for (const group of groups.filter((entry) => entry.folders.length)) {
+    options.push(`<optgroup label="${esc(group.name)}">${group.folders.map((folder) =>
+      `<option value="${folder.id}">${esc(folder.title)} (${formatCount(folder.item_count)})</option>`,
+    ).join("")}</optgroup>`);
+  }
+  select.innerHTML = options.join("");
+  select.value = String(state.selectedSource || 0);
+  select.disabled = !state.me || !site || state.libraryLoading;
 }
 
 function sourceRow(folder, site) {
@@ -2878,7 +2911,6 @@ function bind() {
   $("#sync-all").onclick = startSyncAll;
   $("#dashboard-open-library").onclick = () => switchView("library");
   $("#ledger-open-library").onclick = () => switchView("library");
-  $("#source-manage").onclick = openAccountManager;
   $("#source-add").onclick = openAddSourceModal;
   $("#library-sync").onclick = () => {
     const folder = selectedSource();
@@ -2887,6 +2919,7 @@ function bind() {
   $("#library-download").onclick = () => {
     if (state.selectedSource) downloadSource(state.selectedSource);
   };
+  $("#mobile-source-select").onchange = () => selectSource(Number($("#mobile-source-select").value));
   $("#downloads-refresh").onclick = loadDownloads;
   $("#retry-failed").onclick = retryFailed;
   $("#runs-refresh").onclick = loadRuns;

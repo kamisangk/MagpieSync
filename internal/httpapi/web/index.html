@@ -117,10 +117,16 @@
                 <button class="text-link" id="ledger-open-library" type="button">查看全部视频<svg class="icon" aria-hidden="true"><use href="/icons.svg#arrow-right"></use></svg></button>
               </div>
             </section>
-            <section id="last-run-panel" class="surface last-run" aria-labelledby="last-run-title"></section>
+            <section id="last-run-panel" class="last-run" aria-labelledby="last-run-title"></section>
           </div>
 
           <div class="dashboard-columns">
+            <aside id="attention-panel" class="panel-flat attention" aria-labelledby="attention-title">
+              <div class="section-head">
+                <h2 id="attention-title">需要处理</h2>
+              </div>
+              <div id="attention-list" class="attention-list"></div>
+            </aside>
             <section class="panel-flat" aria-labelledby="recent-runs-title">
               <div class="section-head">
                 <h2 id="recent-runs-title">最近同步</h2>
@@ -128,12 +134,6 @@
               </div>
               <div id="recent-runs" class="runs-compact"></div>
             </section>
-            <aside id="attention-panel" class="panel-flat attention" aria-labelledby="attention-title">
-              <div class="section-head">
-                <h2 id="attention-title">需要处理</h2>
-              </div>
-              <div id="attention-list" class="attention-list"></div>
-            </aside>
           </div>
         </section>
 
@@ -160,8 +160,11 @@
                 <h2>来源</h2>
                 <button id="source-add" class="icon-btn" type="button" aria-label="添加来源" title="添加来源" hidden><svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></button>
               </div>
+              <label class="mobile-source-picker">
+                <span>当前来源</span>
+                <select id="mobile-source-select" aria-label="选择视频来源"></select>
+              </label>
               <div id="source-list" class="source-list"></div>
-              <button id="source-manage" class="source-manage" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#user-circle"></use></svg>账户与站点</button>
             </aside>
 
             <section class="library-main" aria-labelledby="library-title">
