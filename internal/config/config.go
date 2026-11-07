@@ -22,7 +22,7 @@ func Load(args []string) (Config, error) {
 	listen := fs.String("listen", envOr("MAGPIESYNC_LISTEN", "127.0.0.1:8787"), "HTTP listen address")
 	dataDir := fs.String("data-dir", envOr("MAGPIESYNC_DATA_DIR", "./data"), "data directory")
 	rate := fs.Float64("rate", envFloat("MAGPIESYNC_RATE", 1.5), "maximum requests per second per site client")
-	schedule := fs.String("schedule", os.Getenv("MAGPIESYNC_SCHEDULE"), "cron schedule for automatic sync (empty = disabled)")
+	schedule := fs.String("schedule", os.Getenv("MAGPIESYNC_SCHEDULE"), "initial cron schedule for automatic sync (saved settings take precedence)")
 	resetPassword := fs.Bool("reset-password", false, "remove the local Web UI password and exit; the next start asks for a new one")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err

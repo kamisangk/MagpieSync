@@ -13,12 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/robfig/cron/v3"
-
 	"magpiesync/internal/config"
 	"magpiesync/internal/download"
 	"magpiesync/internal/httpapi"
 	"magpiesync/internal/netproxy"
+	"magpiesync/internal/scheduler"
 	"magpiesync/internal/sites"
 	_ "magpiesync/internal/sites/all"
 	"magpiesync/internal/store"
@@ -197,30 +196,20 @@ func run() error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	if cfg.Schedule != "" {
-		scheduler := cron.New()
-		if _, err := scheduler.AddFunc(cfg.Schedule, func() {
-			accounts, err := st.ListAccounts(context.Background())
-			if err != nil || len(accounts) == 0 {
-				slog.Warn("scheduled sync skipped", "error", err)
-				return
-			}
-			for i := range accounts {
-				account := accounts[i]
-				if account.State != "active" {
-					continue
-				}
-				if _, err := engine.Start(account.ID, "scheduled", "all"); err != nil {
-					slog.Warn("scheduled sync not started", "account_id", account.ID, "error", err)
-				}
-			}
-		}); err != nil {
-			return fmt.Errorf("invalid schedule %q: %w", cfg.Schedule, err)
-		}
-		scheduler.Start()
-		defer scheduler.Stop()
-		slog.Info("automatic sync enabled", "schedule", cfg.Schedule)
+	schedule, err := scheduler.Load(context.Background(), st, cfg.Schedule)
+	if err != nil {
+		return fmt.Errorf("load sync schedule: %w", err)
 	}
+	plan, err := scheduler.Parse(schedule)
+	if err != nil {
+		return fmt.Errorf("invalid sync schedule: %w", err)
+	}
+	scheduledSync := scheduler.New(func() {
+		syncActiveAccounts(st, engine.Start)
+	})
+	scheduledSync.Configure(plan)
+	api.SetScheduleUpdater(scheduledSync.Configure)
+	defer scheduledSync.Stop()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -240,6 +229,7 @@ func run() error {
 	}
 
 	slog.Info("shutting down")
+	scheduledSync.Stop()
 	engine.CancelAll()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -264,4 +254,21 @@ func (r *siteResolver) Close() error {
 		return r.close()
 	}
 	return nil
+}
+
+func syncActiveAccounts(st *store.Store, start func(int64, string, string) (int64, error)) {
+	accounts, err := st.ListAccounts(context.Background())
+	if err != nil || len(accounts) == 0 {
+		slog.Warn("scheduled sync skipped", "error", err)
+		return
+	}
+	for i := range accounts {
+		account := accounts[i]
+		if account.State != "active" {
+			continue
+		}
+		if _, err := start(account.ID, "scheduled", "all"); err != nil {
+			slog.Warn("scheduled sync not started", "account_id", account.ID, "error", err)
+		}
+	}
 }

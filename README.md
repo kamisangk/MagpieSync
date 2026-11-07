@@ -63,7 +63,7 @@ docker run -d --name magpiesync \
 | `-listen` | `MAGPIESYNC_LISTEN` | `127.0.0.1:8787` | Web UI 和 API 监听地址 |
 | `-data-dir` | `MAGPIESYNC_DATA_DIR` | `./data` | 数据库和密钥目录 |
 | `-rate` | `MAGPIESYNC_RATE` | `1.5` | 每个站点客户端的最大请求速率（次/秒） |
-| `-schedule` | `MAGPIESYNC_SCHEDULE` | 空 | 定时同步的 cron 表达式，例如 `0 4 * * *` |
+| `-schedule` | `MAGPIESYNC_SCHEDULE` | 空 | 首次初始化同步计划的 cron 表达式，例如 `0 4 * * *` |
 | `-reset-password` | 无 | 关闭 | 清除本地 Web UI 密码后退出，不删除站点账户和本地资料 |
 | 无 | `MAGPIESYNC_SECRET` | 空 | 可选的 base64 编码 32 字节密钥；未设置时使用 `data/secret.key` |
 
@@ -106,3 +106,5 @@ make build SITES="bilibili"
 ## 许可证
 
 [Apache-2.0](LICENSE)
+
+定时同步在「设置 → 常规」中配置，使用五段 Cron 表达式，留空关闭，保存后立即生效。计划按服务运行时区执行，适用于所有活跃账户，不会自动下载媒体。`-schedule` / `MAGPIESYNC_SCHEDULE` 仅在数据库尚无同步计划时初始化一次；已保存的值（包括空值）始终优先。

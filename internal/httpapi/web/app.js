@@ -2088,6 +2088,77 @@ function connectSSE() {
 
 /* Settings */
 
+let schedulePreviewTimer;
+let schedulePreviewVersion = 0;
+let scheduleValid = true;
+
+function scheduleExpression() {
+  return $("#schedule-enabled").checked ? $("#set-sync-schedule").value.trim() : "";
+}
+
+function renderScheduleStatus() {
+  const saved = state.settings?.sync_schedule || "";
+  const value = scheduleExpression();
+  const enabled = $("#schedule-enabled").checked;
+  $("#schedule-editor").hidden = !enabled;
+  $("#schedule-enabled").setAttribute("aria-expanded", String(enabled));
+  $("#schedule-enabled").disabled = state.settingsSaving;
+  const badge = $("#schedule-live");
+  badge.textContent = saved ? "当前已启用" : "当前已关闭";
+  badge.classList.toggle("on", !!saved);
+  $("#schedule-preview-label").textContent = saved === value && enabled === !!saved ? "计划预览" : "保存后的计划预览";
+  $$('[data-schedule]').forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.schedule === value));
+    b.disabled = state.settingsSaving;
+  });
+  $("#schedule-clear").disabled = !value || state.settingsSaving;
+  $("#set-sync-schedule").disabled = state.settingsSaving;
+}
+
+function previewSchedule() {
+  clearTimeout(schedulePreviewTimer);
+  const version = ++schedulePreviewVersion;
+  const expression = scheduleExpression();
+  scheduleValid = !expression;
+  $("#schedule-error").hidden = true;
+  $("#set-sync-schedule").setAttribute("aria-invalid", "false");
+  renderScheduleStatus();
+  $("#schedule-title").textContent = expression ? "正在检查计划…" : "按需手动同步";
+  $("#schedule-next").textContent = expression ? "计算中…" : "未安排定时任务";
+  updateSettingsState();
+  if (!expression) {
+    if ($("#schedule-enabled").checked) {
+      scheduleValid = false;
+      $("#schedule-title").textContent = "请选择同步计划";
+      $("#schedule-next").textContent = "当前生效计划保持不变";
+      $("#schedule-error").textContent = "请填写同步计划或选择一个常用计划。";
+      $("#schedule-error").hidden = false;
+      $("#set-sync-schedule").setAttribute("aria-invalid", "true");
+      updateSettingsState();
+    }
+    return;
+  }
+  schedulePreviewTimer = setTimeout(async () => {
+    try {
+      const data = await api(`/api/settings/sync-preview?expression=${encodeURIComponent(expression)}`);
+      if (version !== schedulePreviewVersion) return;
+      scheduleValid = true;
+      const preset = $$('[data-schedule]').find((b) => b.dataset.schedule === expression);
+      $("#schedule-title").textContent = preset ? preset.textContent : expression;
+      $("#schedule-next").textContent = data.next_run ? new Date(data.next_run).toLocaleString("zh-CN", { hour12: false }) : "未安排定时任务";
+    } catch (err) {
+      if (version !== schedulePreviewVersion) return;
+      scheduleValid = false;
+      $("#schedule-error").textContent = err.message;
+      $("#schedule-error").hidden = false;
+      $("#set-sync-schedule").setAttribute("aria-invalid", "true");
+      $("#schedule-title").textContent = "请检查同步计划";
+      $("#schedule-next").textContent = "当前生效计划保持不变";
+    }
+    updateSettingsState();
+  }, 250);
+}
+
 async function loadSettings() {
   if (state.settingsDirty) return;
   try {
@@ -2097,6 +2168,9 @@ async function loadSettings() {
       state.me ? api("/api/accounts") : Promise.resolve({ accounts: [] }),
     ]);
     state.settings = d.settings;
+    $("#set-sync-schedule").value = d.settings.sync_schedule || "";
+    $("#schedule-enabled").checked = !!d.settings.sync_schedule;
+    previewSchedule();
     state.accounts = accountData.accounts || [];
     renderSettingsAccounts(d.settings, d.site_quality_options);
     showSettingsSection(settingsSectionFromHash() || state.settingsSection);
@@ -2126,7 +2200,8 @@ function updateSettingsState() {
   const btn = $("#settings-save");
   const label = $("#settings-state");
   if (!btn || !label) return;
-  btn.disabled = !state.settingsDirty || state.settingsSaving;
+  btn.disabled = !state.settingsDirty || state.settingsSaving || !scheduleValid;
+  renderScheduleStatus();
   if (state.settingsSaving) {
     label.textContent = "正在保存";
     label.classList.remove("dirty");
@@ -2142,7 +2217,7 @@ function readNumber(id) {
 
 async function saveSettings(event) {
   if (event) event.preventDefault();
-  if (!state.settingsDirty || state.settingsSaving) return;
+  if (!state.settingsDirty || state.settingsSaving || !scheduleValid) return;
   const mediaDir = $("#set-media-dir").value.trim();
   const codecs = $("#set-codecs").value.trim();
   const concurrency = readNumber("#set-concurrency");
@@ -2180,6 +2255,7 @@ async function saveSettings(event) {
     const d = await api("/api/settings", {
       method: "PUT",
       body: {
+        sync_schedule: scheduleExpression(),
         media_dir: mediaDir,
         ffmpeg: $("#set-ffmpeg").value.trim(),
         site_qualities: readSiteQualities(),
@@ -2198,6 +2274,7 @@ async function saveSettings(event) {
       if (account) account.proxy = change.proxy;
     }
     state.settings = d.settings || state.settings;
+    renderScheduleStatus();
     state.settingsDirty = false;
     renderSettingsAccounts(state.settings, null);
     const ffmpeg = $("#ffmpeg-status");
@@ -2925,6 +3002,26 @@ function bind() {
   $("#runs-refresh").onclick = loadRuns;
   $("#run-filter").onchange = renderRunsTable;
   $("#settings-save").onclick = saveSettings;
+  $("#schedule-enabled").addEventListener("change", () => {
+    if ($("#schedule-enabled").checked && !$("#set-sync-schedule").value.trim()) {
+      $("#set-sync-schedule").value = "0 4 * * *";
+    }
+    previewSchedule();
+  });
+  $("#set-sync-schedule").addEventListener("input", previewSchedule);
+  $$('[data-schedule]').forEach((b) => {
+    b.onclick = () => {
+      $("#set-sync-schedule").value = b.dataset.schedule;
+      markSettingsDirty();
+      previewSchedule();
+    };
+  });
+  $("#schedule-clear").onclick = () => {
+    $("#set-sync-schedule").value = "";
+    markSettingsDirty();
+    previewSchedule();
+    $("#set-sync-schedule").focus();
+  };
   $$(".settings-nav-item").forEach((btn) => {
     btn.onclick = () => showSettingsSection(btn.dataset.settingsSection);
   });

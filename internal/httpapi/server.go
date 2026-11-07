@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	qrcode "github.com/skip2/go-qrcode"
 
 	"magpiesync/internal/config"
@@ -44,7 +45,9 @@ type Server struct {
 	engine *syncpkg.Engine
 	hub    *Hub
 
-	download *download.Manager
+	download        *download.Manager
+	settingsMu      sync.Mutex
+	scheduleUpdater func(cron.Schedule)
 
 	mu         sync.Mutex
 	qrSessions map[string]*qrSession
@@ -120,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.HandleFunc("GET /api/export", s.handleExport)
 	mux.HandleFunc("GET /api/settings", s.handleSettings)
+	mux.HandleFunc("GET /api/settings/sync-preview", s.handleSyncPreview)
 	mux.HandleFunc("PUT /api/settings", s.handleSettings)
 	mux.HandleFunc("GET /api/downloads", s.handleDownloads)
 	mux.HandleFunc("POST /api/downloads", s.handleEnqueueDownloads)

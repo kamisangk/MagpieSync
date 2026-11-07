@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robfig/cron/v3"
+
 	"magpiesync/internal/download"
+	"magpiesync/internal/scheduler"
 	"magpiesync/internal/sites"
 	"magpiesync/internal/store"
 )
@@ -71,6 +74,18 @@ func ffmpegAvailable(path string) bool {
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	schedule, _, err := s.store.GetSetting(r.Context(), scheduler.Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "无法读取同步计划")
+		return
+	}
+	dto := func(d download.Settings) map[string]any {
+		v := settingsDTO(d)
+		v["sync_schedule"] = schedule
+		return v
+	}
 	switch r.Method {
 	case http.MethodGet:
 		d, err := download.LoadSettings(r.Context(), s.store)
@@ -79,12 +94,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"settings":             settingsDTO(d),
+			"settings":             dto(d),
 			"ffmpeg_available":     ffmpegAvailable(d.FFmpegPath),
 			"site_quality_options": siteQualityOptionsByID(),
 		})
 	case http.MethodPut:
 		var body struct {
+			SyncSchedule     *string                             `json:"sync_schedule"`
 			MediaDir         *string                             `json:"media_dir"`
 			FFmpeg           *string                             `json:"ffmpeg"`
 			SiteQualities    *map[string]int                     `json:"site_qualities"`
@@ -99,6 +115,15 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if err := readJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
+		}
+		var plan cron.Schedule
+		if body.SyncSchedule != nil {
+			schedule = strings.TrimSpace(*body.SyncSchedule)
+			plan, err = scheduler.Parse(schedule)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 		}
 		d, err := download.LoadSettings(r.Context(), s.store)
 		if err != nil {
@@ -220,12 +245,19 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			d.ChunkThreshold = int64(*body.ChunkThresholdMB) << 20
 		}
-		if err := s.store.SetSettings(r.Context(), d.Values(), time.Now().Unix()); err != nil {
+		values := d.Values()
+		if body.SyncSchedule != nil {
+			values[scheduler.Key] = schedule
+		}
+		if err := s.store.SetSettings(r.Context(), values, time.Now().Unix()); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if body.SyncSchedule != nil && s.scheduleUpdater != nil {
+			s.scheduleUpdater(plan)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"settings":         settingsDTO(d),
+			"settings":         dto(d),
 			"ffmpeg_available": ffmpegAvailable(d.FFmpegPath),
 			"restart_hint":     "设置已保存，新任务立即生效",
 		})

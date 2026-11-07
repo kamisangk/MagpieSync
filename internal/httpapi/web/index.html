@@ -243,7 +243,7 @@
           <header class="page-head">
             <div class="page-head-copy">
               <h1>设置</h1>
-              <p class="page-lede">全局选项对所有账户生效；站点与账户选项只影响对应站点或账户。修改后对新任务生效。</p>
+              <p class="page-lede">管理同步计划、媒体存储与站点账户。</p>
             </div>
             <div class="page-actions settings-actions">
               <span id="settings-state" class="save-state">所有修改已保存</span>
@@ -261,9 +261,31 @@
             <div class="settings-body">
               <section class="settings-panel" data-settings-panel="general" hidden>
                 <header class="settings-panel-head">
-                  <h2>常规</h2>
-                  <p>媒体落在哪个目录、媒体处理使用的 FFmpeg 路径，以及数据导出。</p>
+                  <h2>定时同步</h2>
+                  <p>按计划更新所有已连接账户的收藏与来源。</p>
+                  <span id="schedule-live" class="schedule-badge">当前已关闭</span>
                 </header>
+                <label class="schedule-toggle"><span>开启定时同步</span><input id="schedule-enabled" type="checkbox" role="switch" aria-controls="schedule-editor" aria-expanded="false"><span class="schedule-switch" aria-hidden="true"></span></label>
+                <div id="schedule-editor" class="schedule-editor" hidden>
+                  <label class="schedule-label" for="set-sync-schedule">同步计划</label>
+                  <div class="schedule-presets" aria-label="常用计划">
+                    <button class="btn ghost" type="button" data-schedule="0 4 * * *" aria-pressed="false">每天凌晨 04:00</button>
+                    <button class="btn ghost" type="button" data-schedule="0 */6 * * *" aria-pressed="false">每 6 小时</button>
+                    <button class="btn ghost" type="button" data-schedule="0 4 * * 0" aria-pressed="false">每周日 04:00</button>
+                  </div>
+                  <div class="schedule-input-row">
+                    <input id="set-sync-schedule" type="text" placeholder="例如 0 4 * * *" autocomplete="off" spellcheck="false" aria-describedby="schedule-help schedule-error" aria-invalid="false">
+                    <button id="schedule-clear" class="btn ghost" type="button">清空</button>
+                  </div>
+                  <div id="schedule-help" class="schedule-help"><span>分钟 · 小时 · 日 · 月 · 星期</span></div>
+                  <p id="schedule-error" class="schedule-error" role="alert" hidden></p>
+                  <div class="schedule-preview" aria-live="polite">
+                    <span id="schedule-preview-label">计划预览</span>
+                    <h3 id="schedule-title">按需手动同步</h3>
+                    <div class="schedule-next"><span>下次执行</span><strong id="schedule-next">未安排定时任务</strong></div>
+                  </div>
+                </div>
+                <div class="settings-sub"><div class="settings-sub-head"><h3>媒体存储</h3></div></div>
                 <div class="settings-fields">
                   <label class="field field-wide">媒体目录
                     <input id="set-media-dir" type="text" placeholder="D:\Media\MagpieSync">
