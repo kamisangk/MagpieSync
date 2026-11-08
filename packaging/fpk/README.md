@@ -13,6 +13,8 @@
 FNPACK_BIN=/path/to/fnpack ./packaging/fpk/build.sh x86
 ```
 
+For release builds, set `FPK_VERSION` to override the package version in the generated manifest. The GitHub Actions release workflow sets it from the pushed `vMAJOR.MINOR.PATCH` tag.
+
 参数含义：
 
 - `x86` 生成 `platform=x86`、`linux/amd64` 包。

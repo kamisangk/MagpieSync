@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate site registry
+        run: go generate ./internal/sites/all
+
+      - name: Test
+        run: go test ./... -count=1
+
+      - name: Read release version
+        id: version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH format: $TAG_NAME" >&2
+            exit 1
+          fi
+          echo "value=${TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Linux binaries
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p dist/release
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '-s -w' -o dist/magpiesync ./cmd/magpiesync
+          tar -C dist -czf "dist/release/magpiesync_${VERSION}_linux_amd64.tar.gz" magpiesync
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags '-s -w' -o dist/magpiesync ./cmd/magpiesync
+          tar -C dist -czf "dist/release/magpiesync_${VERSION}_linux_arm64.tar.gz" magpiesync
+
+      - name: Build fnOS packages
+        env:
+          FPK_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          curl --fail --location --silent --show-error \
+            https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64 \
+            --output "$RUNNER_TEMP/fnpack"
+          chmod +x "$RUNNER_TEMP/fnpack"
+          FNPACK_BIN="$RUNNER_TEMP/fnpack" packaging/fpk/build.sh x86
+          FNPACK_BIN="$RUNNER_TEMP/fnpack" packaging/fpk/build.sh arm
+          cp dist/fpk/staging/magpiesync-x86/magpiesync.fpk "dist/release/magpiesync_${FPK_VERSION}_fnos_x86.fpk"
+          cp dist/fpk/staging/magpiesync-arm/magpiesync.fpk "dist/release/magpiesync_${FPK_VERSION}_fnos_arm.fpk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/release/*
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Read release version
+        id: version
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:TAG_NAME -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') {
+            throw "Tag must use vMAJOR.MINOR.PATCH format: $env:TAG_NAME"
+          }
+          "value=$($env:TAG_NAME.Substring(1))" >> $env:GITHUB_OUTPUT
+
+      - name: Build Windows binary
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          New-Item -ItemType Directory -Force dist/release, dist/windows-amd64 | Out-Null
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -trimpath -ldflags "-s -w" -o dist/windows-amd64/magpiesync.exe ./cmd/magpiesync
+          Compress-Archive -Path dist/windows-amd64/magpiesync.exe -DestinationPath "dist/release/magpiesync_${env:VERSION}_windows_amd64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/release/*
+          if-no-files-found: error
+
+  publish:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist/release
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/release/*
+          fail_on_unmatched_files: true

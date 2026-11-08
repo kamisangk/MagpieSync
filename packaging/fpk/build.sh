@@ -32,7 +32,13 @@ if [ -n "${FFMPEG_BIN:-}" ]; then
   chmod 0755 "$pkg/app/bin/ffmpeg/ffmpeg"
 fi
 
-sed "s/^platform=.*/platform=$platform/" "$root/packaging/fpk/manifest" > "$pkg/manifest"
+package_version=${FPK_VERSION:-$(sed -n 's/^version=//p' "$root/packaging/fpk/manifest")}
+case "$package_version" in
+  ''|*[!0-9A-Za-z.+-]*) echo "invalid FPK_VERSION: $package_version" >&2; exit 2 ;;
+esac
+sed -e "s/^platform=.*/platform=$platform/" \
+  -e "s/^version=.*/version=$package_version/" \
+  "$root/packaging/fpk/manifest" > "$pkg/manifest"
 cp "$root/packaging/fpk/cmd-main.sh" "$pkg/cmd/main"
 cp "$root/packaging/fpk/install_init" "$pkg/cmd/install_init"
 cp "$root/packaging/fpk/install_callback" "$pkg/cmd/install_callback"

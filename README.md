@@ -54,6 +54,15 @@ docker run -d --name magpiesync \
 
 浏览 <http://127.0.0.1:8787> 完成首次密码设置。容器以非 root 用户运行，镜像包含 FFmpeg、CA 证书和时区数据。持久化 `/data` 卷以保留数据库和加密密钥。
 
+### GitHub Releases
+
+将 `vMAJOR.MINOR.PATCH` 格式的 tag 推送到 GitHub 后，Actions 会运行测试并创建 Release，附上 Linux amd64/arm64、Windows amd64 和 fnOS x86/ARM FPK。比如：
+
+```bash
+git tag v0.10.3
+git push origin v0.10.3
+```
+
 ## 配置
 
 命令行参数优先于对应环境变量。
