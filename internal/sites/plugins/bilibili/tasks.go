@@ -21,7 +21,6 @@ func (driver) BuildTasks(ctx context.Context, in sites.AccountContext, req sites
 
 func buildTasks(ctx context.Context, video sites.VideoClient, in sites.AccountContext, req sites.TaskRequest) ([]store.DownloadTaskInput, error) {
 	inputs := make([]store.DownloadTaskInput, 0, len(req.Items))
-	var lastErr error
 	for _, item := range req.Items {
 		bvid := item.RemoteID
 		if bvid == "" {
@@ -29,8 +28,7 @@ func buildTasks(ctx context.Context, video sites.VideoClient, in sites.AccountCo
 		}
 		detail, err := video.VideoDetail(ctx, bvid)
 		if err != nil {
-			lastErr = err
-			continue
+			return nil, err
 		}
 		tags, _ := video.VideoTags(ctx, bvid)
 		for _, p := range detail.Pages {
@@ -54,9 +52,6 @@ func buildTasks(ctx context.Context, video sites.VideoClient, in sites.AccountCo
 				Summary:     detail.Summary,
 			})
 		}
-	}
-	if len(inputs) == 0 && lastErr != nil {
-		return nil, lastErr
 	}
 	return inputs, nil
 }
