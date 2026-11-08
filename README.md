@@ -1,13 +1,14 @@
-<img src="internal/httpapi/web/brand-logo.png" alt="MagpieSync" width="128">
+<p align="center"><img src="internal/httpapi/web/brand-logo.png" alt="MagpieSync" width="128"></p>
 
-# MagpieSync
+<h1 align="center">MagpieSync</h1>
 
-**把视频收藏同步到自己的资料库，并按需保存为本地媒体。**
+<p align="center"><strong>把视频收藏同步到自己的资料库，并按需保存为本地媒体。</strong></p>
 
-![Go](https://img.shields.io/badge/Go-1.26.1%2B-00ADD8?logo=go&logoColor=white)
-![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)
-![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
-
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.26.1%2B-00ADD8?logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white" alt="Storage">
+</p>
 
 MagpieSync 是一个自托管、单机运行的视频收藏备份工具。它将支持站点的收藏来源只读同步到本地 SQLite，提供搜索、同步记录、数据导出和下载队列，并内置 Web 界面。
 
