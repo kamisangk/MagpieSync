@@ -16,13 +16,14 @@ func (driver) BuildTasks(ctx context.Context, in sites.AccountContext, req sites
 	if err != nil {
 		return nil, err
 	}
+	return buildTasks(ctx, video, in, req)
+}
+
+func buildTasks(ctx context.Context, video sites.VideoClient, in sites.AccountContext, req sites.TaskRequest) ([]store.DownloadTaskInput, error) {
 	inputs := make([]store.DownloadTaskInput, 0, len(req.Items))
 	var lastErr error
 	for _, item := range req.Items {
 		bvid := item.RemoteID
-		if bvid == "" {
-			bvid = item.RemoteID
-		}
 		if bvid == "" {
 			continue
 		}
@@ -36,7 +37,7 @@ func (driver) BuildTasks(ctx context.Context, in sites.AccountContext, req sites
 			inputs = append(inputs, store.DownloadTaskInput{
 				Site:        "bilibili",
 				PageURL:     "https://www.bilibili.com/video/" + detail.RemoteID,
-				RemoteID:    detail.RemoteID,
+				RemoteID:    item.RemoteID,
 				PartID:      p.PartID,
 				VideoTitle:  detail.Title,
 				PageTitle:   p.Title,

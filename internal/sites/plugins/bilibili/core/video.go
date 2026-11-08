@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"magpiesync/internal/media"
 )
@@ -73,7 +74,7 @@ func (c *Client) VideoDetail(ctx context.Context, bvid string) (*VideoDetail, er
 			} `json:"dimension"`
 		} `json:"pages"`
 	}
-	if err := c.apiGet(ctx, "/x/web-interface/view", url.Values{"bvid": {bvid}}, false, &d); err != nil {
+	if err := c.apiGet(ctx, "/x/web-interface/view", videoIdentityParams(bvid), false, &d); err != nil {
 		return nil, err
 	}
 	if d.BVID == "" || len(d.Pages) == 0 {
@@ -106,7 +107,7 @@ func (c *Client) VideoTags(ctx context.Context, bvid string) ([]string, error) {
 	var d []struct {
 		TagName string `json:"tag_name"`
 	}
-	if err := c.apiGet(ctx, "/x/web-interface/view/detail/tag", url.Values{"bvid": {bvid}}, false, &d); err != nil {
+	if err := c.apiGet(ctx, "/x/web-interface/view/detail/tag", videoIdentityParams(bvid), false, &d); err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, len(d))
@@ -125,7 +126,6 @@ func (c *Client) PlayURL(ctx context.Context, bvid string, cid int64, qn int) (*
 		qn = 127
 	}
 	params := url.Values{
-		"bvid":         {bvid},
 		"cid":          {strconv.FormatInt(cid, 10)},
 		"qn":           {strconv.Itoa(qn)},
 		"fnval":        {"4048"},
@@ -133,6 +133,9 @@ func (c *Client) PlayURL(ctx context.Context, bvid string, cid int64, qn int) (*
 		"fourk":        {"1"},
 		"platform":     {"pc"},
 		"high_quality": {"1"},
+	}
+	for key, value := range videoIdentityParams(bvid) {
+		params[key] = value
 	}
 	var d struct {
 		Quality int `json:"quality"`
@@ -167,4 +170,17 @@ func (c *Client) PlayURL(ctx context.Context, bvid string, cid int64, qn int) (*
 		return nil, fmt.Errorf("bilibili: no playable stream for %s (cid %d)", bvid, cid)
 	}
 	return out, nil
+}
+
+// Favorites store numeric archive IDs; other sources may supply BV IDs.
+func videoIdentityParams(remoteID string) url.Values {
+	remoteID = strings.TrimSpace(remoteID)
+	aid := remoteID
+	if strings.HasPrefix(strings.ToLower(aid), "av") {
+		aid = aid[2:]
+	}
+	if id, err := strconv.ParseInt(aid, 10, 64); err == nil && id > 0 {
+		return url.Values{"aid": {strconv.FormatInt(id, 10)}}
+	}
+	return url.Values{"bvid": {remoteID}}
 }

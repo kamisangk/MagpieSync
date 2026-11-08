@@ -1857,13 +1857,14 @@ function enqueueMessage(d) {
   const created = Number(d.created || 0);
   const skipped = Number(d.skipped || 0);
   const queued = Number(d.queued_videos || 0);
+  if (d.async) return `正在解析 ${queued} 个视频，解析完成后将加入下载队列`;
   if (created) return skipped ? `已加入 ${created} 个下载任务，跳过 ${skipped} 个` : `已加入 ${created} 个下载任务`;
-  if (queued && skipped) return `已加入 ${queued} 个任务，跳过 ${skipped} 个`;
-  if (queued) return `已加入 ${queued} 个下载任务`;
-  return "已加入下载队列";
+  if (skipped) return `未新增下载任务，${skipped} 个任务已存在，可在下载页查看或重试`;
+  return "未生成下载任务，请检查来源中的视频是否可下载";
 }
 
 async function downloadSource(folderID) {
+  toast("正在提交下载请求…");
   try {
     const d = await api("/api/downloads", { method: "POST", body: { folder_id: folderID } });
     toast(enqueueMessage(d));
@@ -2079,6 +2080,10 @@ function connectSSE() {
         if (state.view === "downloads") renderDownloads();
       }
     } else if (payload.type === "download_done" || payload.type === "download_enqueued") {
+      if (payload.type === "download_enqueued") {
+        if (payload.error) toast(`创建下载任务失败：${payload.error}`, true);
+        else if (payload.created !== undefined || payload.skipped !== undefined) toast(enqueueMessage(payload));
+      }
       if (state.view === "downloads") loadDownloads();
       loadDownloadsQuiet();
       if (state.view === "library") loadItems();

@@ -128,6 +128,36 @@ func (s *Store) CreateDownloadTasks(ctx context.Context, accountID int64, qualit
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, in := range inputs {
+		// A terminal unsuccessful attempt can be intentionally downloaded again
+		// with a new quality. Reuse its row so local status stays tied to the
+		// same video/page, but replace the stale quality and queue state.
+		var existingID int64
+		var existingState string
+		err := tx.QueryRowContext(ctx, `
+			SELECT id, state FROM download_tasks
+			WHERE account_id = ? AND remote_id = ? AND part_id = ?
+			ORDER BY id DESC LIMIT 1`, accountID, in.RemoteID, in.PartID).Scan(&existingID, &existingState)
+		if err == nil && (existingState == "failed" || existingState == "canceled" || existingState == "missing") {
+			res, err := tx.ExecContext(ctx, `
+				UPDATE download_tasks SET
+					site = ?, page_url = ?, video_title = ?, page_title = ?, page_no = ?, page_count = ?, duration = ?,
+					cover_url = ?, author_id = ?, author_name = ?, pub_time = ?, fav_time = ?, source_title = ?, tags = ?, summary = ?,
+					quality = ?, state = 'pending', progress = 0, total_bytes = 0, downloaded = 0, actual_quality = 0, codec = '',
+					file_path = '', error = '', attempts = 0, finished_at = NULL, updated_at = ?
+				WHERE id = ?`,
+				in.Site, in.PageURL, in.VideoTitle, in.PageTitle, in.PageNo, in.PageCount, in.Duration,
+				in.CoverURL, in.AuthorID, in.AuthorName, in.PubTime, in.FavTime, in.SourceTitle,
+				strings.Join(in.Tags, "|"), in.Summary, quality, now, existingID)
+			if err != nil {
+				return created, skipped, err
+			}
+			if n, err := res.RowsAffected(); err != nil {
+				return created, skipped, err
+			} else if n > 0 {
+				created++
+				continue
+			}
+		}
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO download_tasks(
 				account_id, site, page_url, remote_id, part_id, video_title, page_title, page_no, page_count, duration,

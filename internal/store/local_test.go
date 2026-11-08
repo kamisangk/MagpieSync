@@ -110,3 +110,37 @@ func TestDownloadTasksShareOneCopyAcrossQuality(t *testing.T) {
 		t.Fatalf("tasks = %+v", tasks)
 	}
 }
+
+func TestCanceledDownloadCanBeRequeuedAtNewQuality(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "canceled-quality.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	accID, err := st.UpsertAccount(ctx, "synthetic-video", "43", "tester", "", []byte("secret"), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := []DownloadTaskInput{{RemoteID: "item-2", PartID: 1, VideoTitle: "video"}}
+	if created, skipped, err := st.CreateDownloadTasks(ctx, accID, 80, in, 100); err != nil || created != 1 || skipped != 0 {
+		t.Fatalf("first = %d/%d err=%v", created, skipped, err)
+	}
+	task, err := st.GetDownloadTask(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CancelDownloadTask(ctx, task.ID, 101); err != nil {
+		t.Fatal(err)
+	}
+	if created, skipped, err := st.CreateDownloadTasks(ctx, accID, 120, in, 102); err != nil || created != 1 || skipped != 0 {
+		t.Fatalf("requeue = %d/%d err=%v", created, skipped, err)
+	}
+	task, err = st.GetDownloadTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.State != "pending" || task.Quality != 120 || task.Error != "" {
+		t.Fatalf("requeued task = %+v", task)
+	}
+}
