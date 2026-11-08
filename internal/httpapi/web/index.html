@@ -198,7 +198,6 @@
           <header class="page-head">
             <div class="page-head-copy">
               <h1>下载</h1>
-              <p id="download-lede" class="page-lede"></p>
             </div>
             <div class="page-actions">
               <button id="downloads-refresh" class="btn ghost" type="button">刷新</button>
@@ -239,7 +238,6 @@
           <header class="page-head">
             <div class="page-head-copy">
               <h1>设置</h1>
-              <p class="page-lede">管理同步计划、媒体存储与站点账户。</p>
             </div>
             <div class="page-actions settings-actions">
               <span id="settings-state" class="save-state">所有修改已保存</span>
@@ -258,7 +256,6 @@
               <section class="settings-panel" data-settings-panel="general" hidden>
                 <header class="settings-panel-head">
                   <h2>定时同步</h2>
-                  <p>按计划更新所有已连接账户的收藏与来源。</p>
                   <span id="schedule-live" class="schedule-badge">当前已关闭</span>
                 </header>
                 <label class="schedule-toggle"><span>开启定时同步</span><input id="schedule-enabled" type="checkbox" role="switch" aria-controls="schedule-editor" aria-expanded="false"><span class="schedule-switch" aria-hidden="true"></span></label>
@@ -285,7 +282,6 @@
                 <div class="settings-fields">
                   <label class="field field-wide">媒体目录
                     <input id="set-media-dir" type="text" placeholder="D:\Media\MagpieSync">
-                    <small>视频、封面与元数据都会写入这个目录。</small>
                   </label>
                   <label class="field field-wide">FFmpeg 路径
                     <input id="set-ffmpeg" type="text" placeholder="ffmpeg 或完整路径">
@@ -295,7 +291,6 @@
                 <div class="settings-sub">
                   <div class="settings-sub-head">
                     <h3>数据导出</h3>
-                    <p>导出所有账户、站点、库、视频与归属关系。</p>
                   </div>
                   <div class="export-row">
                     <a class="btn ghost" href="/api/export?format=json">导出全部 JSON</a>
@@ -307,7 +302,6 @@
               <section class="settings-panel" data-settings-panel="download" hidden>
                 <header class="settings-panel-head">
                   <h2>下载</h2>
-                  <p>全局的并发数量、编码偏好与分片策略。对所有站点生效。</p>
                 </header>
                 <div class="settings-fields">
                   <label class="field">并发下载数
@@ -322,7 +316,6 @@
                 <div class="settings-sub">
                   <div class="settings-sub-head">
                     <h3>分片</h3>
-                    <p>大文件按分片并发抓取，通常保持默认即可。</p>
                   </div>
                   <div class="settings-fields">
                     <label class="field">分片并发数
@@ -340,7 +333,6 @@
               <section class="settings-panel" data-settings-panel="accounts" hidden>
                 <header class="settings-panel-head">
                   <h2>站点与账户</h2>
-                  <p>每个站点一张卡片，集中管理命名模板、清晰度、随视频生成的文件与账户代理。各站点可用的命名变量不同，按站点单独配置。</p>
                 </header>
                 <div id="set-site-accounts" class="site-card-list"><p class="field-note">正在读取站点…</p></div>
               </section>

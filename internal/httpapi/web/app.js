@@ -1708,9 +1708,6 @@ function filteredDownloads() {
 
 function renderDownloads() {
   const c = state.downloadStats || {};
-  $("#download-lede").textContent = state.me
-    ? "正在下载与已经完成的任务都在这里。暂停会保留临时文件，继续会从断点恢复。"
-    : "连接站点后，在资料库中选择视频加入下载队列。";
   $("#download-filters").innerHTML = downloadFilterDefs().map((f) => `
     <button class="filter-tab ${state.downloadFilter === f.id ? "active" : ""}" type="button" role="tab" aria-selected="${state.downloadFilter === f.id}" data-download-filter="${f.id}">${f.label}<span>${formatCount(f.count)}</span></button>`).join("");
   $("#download-filters").querySelectorAll("[data-download-filter]").forEach((btn) => {
