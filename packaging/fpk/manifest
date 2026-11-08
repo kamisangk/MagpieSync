@@ -1,7 +1,7 @@
 appname=magpiesync
 version=0.10.2
 display_name=MagpieSync
-desc=只读同步视频收藏并下载到本地媒体库
+desc=MagpieSync 是一个自托管、单机运行的视频收藏备份工具。它支持将哔哩哔哩、Acfun等视频网站的收藏同步至本地目录。
 maintainer=kamisamak
 maintainer_url=https://github.com/kamisangk
 distributor=kamisamak

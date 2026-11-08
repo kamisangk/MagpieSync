@@ -2,8 +2,6 @@
 
 <h1 align="center">MagpieSync</h1>
 
-<p align="center"><strong>把视频收藏同步到自己的资料库，并按需保存为本地媒体。</strong></p>
-
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.26.1%2B-00ADD8?logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License">
