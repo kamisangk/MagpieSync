@@ -254,6 +254,16 @@
 
             <div class="settings-body">
               <section class="settings-panel" data-settings-panel="general" hidden>
+                <div class="settings-sub"><div class="settings-sub-head"><h3>媒体存储</h3></div></div>
+                <div class="settings-fields">
+                  <label class="field field-wide">媒体目录
+                    <input id="set-media-dir" type="text" placeholder="D:\Media\MagpieSync">
+                  </label>
+                  <label class="field field-wide">FFmpeg 路径
+                    <input id="set-ffmpeg" type="text" placeholder="ffmpeg 或完整路径">
+                    <small id="ffmpeg-status" class="field-note"></small>
+                  </label>
+                </div>
                 <header class="settings-panel-head">
                   <h2>定时同步</h2>
                   <span id="schedule-live" class="schedule-badge">当前已关闭</span>
@@ -280,16 +290,6 @@
                       <ol id="schedule-runs" class="schedule-runs"><li>未安排定时任务</li></ol>
                     </div>
                   </div>
-                </div>
-                <div class="settings-sub"><div class="settings-sub-head"><h3>媒体存储</h3></div></div>
-                <div class="settings-fields">
-                  <label class="field field-wide">媒体目录
-                    <input id="set-media-dir" type="text" placeholder="D:\Media\MagpieSync">
-                  </label>
-                  <label class="field field-wide">FFmpeg 路径
-                    <input id="set-ffmpeg" type="text" placeholder="ffmpeg 或完整路径">
-                    <small id="ffmpeg-status" class="field-note"></small>
-                  </label>
                 </div>
                 <div class="settings-sub">
                   <div class="settings-sub-head">
