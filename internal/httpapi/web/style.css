@@ -398,10 +398,6 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
   text-align: center;
 }
 .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 14px; padding-top: 20px; }
-.rail-service { display: flex; align-items: flex-start; gap: 8px; padding: 0 10px; }
-.rail-service span:last-child { display: flex; flex-direction: column; gap: 1px; }
-.rail-service strong { font-size: 12px; line-height: 16px; font-weight: 600; }
-.rail-service small { color: var(--muted); font-size: 11px; line-height: 16px; }
 .rail-logout {
   width: 100%;
   padding: 8px 10px;
