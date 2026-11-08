@@ -1417,8 +1417,11 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .schedule-preview { border: 1px solid var(--line); border-radius: 8px; padding: 24px; margin-top: 24px; background: var(--paper-raised); }
 .schedule-preview > span { font-size: 12px; color: var(--muted); }
 .schedule-preview h3 { font-size: 20px; line-height: 28px; margin: 8px 0 16px; }
-.schedule-next { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; }
+.schedule-next { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; }
 .schedule-next > span { color: var(--muted); }
+.schedule-runs { display: grid; gap: 8px; margin: 0; padding-left: 24px; font-variant-numeric: tabular-nums; }
+.schedule-runs li { padding-left: 4px; }
+@media (max-width: 640px) { .schedule-next { grid-template-columns: 1fr; } }
 
 .schedule-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; cursor: pointer; font-weight: 600; }
 .schedule-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }

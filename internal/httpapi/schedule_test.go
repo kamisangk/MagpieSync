@@ -108,13 +108,24 @@ func TestSchedulePreview(t *testing.T) {
 		}
 		if tc.code == 200 {
 			var body struct {
-				Next *time.Time `json:"next_run"`
+				NextRuns []time.Time `json:"next_runs"`
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
-			if (body.Next == nil) != (tc.query == "") {
-				t.Fatal("unexpected next run")
+			if tc.query == "" {
+				if body.NextRuns == nil || len(body.NextRuns) != 0 {
+					t.Fatalf("disabled preview runs = %+v, want empty array", body.NextRuns)
+				}
+				continue
+			}
+			if len(body.NextRuns) != 5 {
+				t.Fatalf("preview runs = %d, want 5", len(body.NextRuns))
+			}
+			for i := 1; i < len(body.NextRuns); i++ {
+				if !body.NextRuns[i].After(body.NextRuns[i-1]) {
+					t.Fatalf("preview runs are not strictly ordered: %+v", body.NextRuns)
+				}
 			}
 		}
 	}

@@ -2098,6 +2098,19 @@ function scheduleExpression() {
   return $("#schedule-enabled").checked ? $("#set-sync-schedule").value.trim() : "";
 }
 
+function renderScheduleRuns(runs, emptyText = "未安排定时任务") {
+  const list = $("#schedule-runs");
+  list.replaceChildren();
+  const values = runs.length ? runs : [emptyText];
+  for (const value of values) {
+    const item = document.createElement("li");
+    item.textContent = value instanceof Date
+      ? value.toLocaleString("zh-CN", { hour12: false })
+      : value;
+    list.append(item);
+  }
+}
+
 function renderScheduleStatus() {
   const saved = state.settings?.sync_schedule || "";
   const value = scheduleExpression();
@@ -2126,13 +2139,13 @@ function previewSchedule() {
   $("#set-sync-schedule").setAttribute("aria-invalid", "false");
   renderScheduleStatus();
   $("#schedule-title").textContent = expression ? "正在检查计划…" : "按需手动同步";
-  $("#schedule-next").textContent = expression ? "计算中…" : "未安排定时任务";
+  renderScheduleRuns([], expression ? "计算中…" : "未安排定时任务");
   updateSettingsState();
   if (!expression) {
     if ($("#schedule-enabled").checked) {
       scheduleValid = false;
       $("#schedule-title").textContent = "请选择同步计划";
-      $("#schedule-next").textContent = "当前生效计划保持不变";
+      renderScheduleRuns([], "当前生效计划保持不变");
       $("#schedule-error").textContent = "请填写同步计划或选择一个常用计划。";
       $("#schedule-error").hidden = false;
       $("#set-sync-schedule").setAttribute("aria-invalid", "true");
@@ -2147,7 +2160,7 @@ function previewSchedule() {
       scheduleValid = true;
       const preset = $$('[data-schedule]').find((b) => b.dataset.schedule === expression);
       $("#schedule-title").textContent = preset ? preset.textContent : expression;
-      $("#schedule-next").textContent = data.next_run ? new Date(data.next_run).toLocaleString("zh-CN", { hour12: false }) : "未安排定时任务";
+      renderScheduleRuns((data.next_runs || []).map((run) => new Date(run)));
     } catch (err) {
       if (version !== schedulePreviewVersion) return;
       scheduleValid = false;
@@ -2155,7 +2168,7 @@ function previewSchedule() {
       $("#schedule-error").hidden = false;
       $("#set-sync-schedule").setAttribute("aria-invalid", "true");
       $("#schedule-title").textContent = "请检查同步计划";
-      $("#schedule-next").textContent = "当前生效计划保持不变";
+      renderScheduleRuns([], "当前生效计划保持不变");
     }
     updateSettingsState();
   }, 250);
