@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 type Folder struct {
@@ -38,6 +39,14 @@ type Page struct {
 }
 
 func (c *Client) FavFolders(ctx context.Context, mid string) ([]Folder, error) {
+	nav, err := c.Nav(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if strconv.FormatInt(nav.Mid, 10) != strings.TrimSpace(mid) {
+		return nil, fmt.Errorf("%w: logged-in account does not match favorite owner", ErrAuth)
+	}
+
 	var d struct {
 		List []struct {
 			ID         int64  `json:"id"`
