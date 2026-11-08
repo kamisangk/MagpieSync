@@ -1,5 +1,5 @@
 appname=magpiesync
-version=0.10.1
+version=0.10.2
 display_name=MagpieSync
 desc=只读同步视频收藏并下载到本地媒体库
 maintainer=kamisamak

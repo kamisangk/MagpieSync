@@ -15,25 +15,46 @@ type identityTransport func(*http.Request) (*http.Response, error)
 func (f identityTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestVideoAPIsAcceptArchiveAndBVIdentifiers(t *testing.T) {
-	for _, tc := range []struct{ id, key, value string }{
-		{"117370534364338", "aid", "117370534364338"},
-		{"av117370534364338", "aid", "117370534364338"},
-		{"BV11pa26dEit", "bvid", "BV11pa26dEit"},
+	for _, tc := range []struct {
+		id   string
+		keys map[string]string
+	}{
+		{"117370534364338", map[string]string{
+			"/x/web-interface/view":            "aid",
+			"/x/web-interface/view/detail/tag": "aid",
+			"/x/player/wbi/playurl":            "avid",
+			"/x/player/wbi/v2":                 "aid",
+		}},
+		{"av117370534364338", map[string]string{
+			"/x/web-interface/view":            "aid",
+			"/x/web-interface/view/detail/tag": "aid",
+			"/x/player/wbi/playurl":            "avid",
+			"/x/player/wbi/v2":                 "aid",
+		}},
+		{"BV11pa26dEit", map[string]string{
+			"/x/web-interface/view":            "bvid",
+			"/x/web-interface/view/detail/tag": "bvid",
+			"/x/player/wbi/playurl":            "bvid",
+			"/x/player/wbi/v2":                 "bvid",
+		}},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			c := NewGuest()
 			c.wbi = &wbiKeys{mixinKey: "test"}
 			c.http.Transport = identityTransport(func(r *http.Request) (*http.Response, error) {
 				q := r.URL.Query()
-				if q.Get(tc.key) != tc.value {
-					t.Errorf("%s query=%s; want %s=%s", r.URL.Path, q.Encode(), tc.key, tc.value)
+				key := tc.keys[r.URL.Path]
+				want := tc.id
+				if strings.HasPrefix(strings.ToLower(want), "av") {
+					want = want[2:]
 				}
-				other := "bvid"
-				if tc.key == "bvid" {
-					other = "aid"
+				if key == "" || q.Get(key) != want {
+					t.Errorf("%s query=%s; want %s=%s", r.URL.Path, q.Encode(), key, want)
 				}
-				if q.Get(other) != "" {
-					t.Errorf("unexpected %s", other)
+				for _, other := range []string{"aid", "avid", "bvid"} {
+					if other != key && q.Get(other) != "" {
+						t.Errorf("unexpected %s in %s query", other, r.URL.Path)
+					}
 				}
 				data := `{"code":0,"data":{"bvid":"BV11pa26dEit","pages":[{"cid":123,"page":1,"part":"test"}]}}`
 				switch r.URL.Path {

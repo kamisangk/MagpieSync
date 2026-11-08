@@ -74,7 +74,7 @@ func (c *Client) VideoDetail(ctx context.Context, bvid string) (*VideoDetail, er
 			} `json:"dimension"`
 		} `json:"pages"`
 	}
-	if err := c.apiGet(ctx, "/x/web-interface/view", videoIdentityParams(bvid), false, &d); err != nil {
+	if err := c.apiGet(ctx, "/x/web-interface/view", videoIdentityParams(bvid, "aid"), false, &d); err != nil {
 		return nil, err
 	}
 	if d.BVID == "" || len(d.Pages) == 0 {
@@ -107,7 +107,7 @@ func (c *Client) VideoTags(ctx context.Context, bvid string) ([]string, error) {
 	var d []struct {
 		TagName string `json:"tag_name"`
 	}
-	if err := c.apiGet(ctx, "/x/web-interface/view/detail/tag", videoIdentityParams(bvid), false, &d); err != nil {
+	if err := c.apiGet(ctx, "/x/web-interface/view/detail/tag", videoIdentityParams(bvid, "aid"), false, &d); err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, len(d))
@@ -134,7 +134,7 @@ func (c *Client) PlayURL(ctx context.Context, bvid string, cid int64, qn int) (*
 		"platform":     {"pc"},
 		"high_quality": {"1"},
 	}
-	for key, value := range videoIdentityParams(bvid) {
+	for key, value := range videoIdentityParams(bvid, "avid") {
 		params[key] = value
 	}
 	var d struct {
@@ -172,15 +172,15 @@ func (c *Client) PlayURL(ctx context.Context, bvid string, cid int64, qn int) (*
 	return out, nil
 }
 
-// Favorites store numeric archive IDs; other sources may supply BV IDs.
-func videoIdentityParams(remoteID string) url.Values {
+// videoIdentityParams maps archive IDs to the endpoint's numeric ID key.
+func videoIdentityParams(remoteID, numericKey string) url.Values {
 	remoteID = strings.TrimSpace(remoteID)
 	aid := remoteID
 	if strings.HasPrefix(strings.ToLower(aid), "av") {
 		aid = aid[2:]
 	}
 	if id, err := strconv.ParseInt(aid, 10, 64); err == nil && id > 0 {
-		return url.Values{"aid": {strconv.FormatInt(id, 10)}}
+		return url.Values{numericKey: {strconv.FormatInt(id, 10)}}
 	}
 	return url.Values{"bvid": {remoteID}}
 }

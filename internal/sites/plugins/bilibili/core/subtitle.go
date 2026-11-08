@@ -24,7 +24,7 @@ func SubtitleSRT(items []SubtitleItem) []byte {
 // Subtitles lists manual subtitles for a page. AI-generated subtitles are
 // marked so callers can choose whether to fetch them.
 func (c *Client) Subtitles(ctx context.Context, bvid string, cid int64) ([]Subtitle, error) {
-	params := videoIdentityParams(bvid)
+	params := videoIdentityParams(bvid, "aid")
 	params.Set("cid", strconv.FormatInt(cid, 10))
 	var d struct {
 		Subtitle *struct {
