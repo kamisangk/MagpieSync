@@ -227,6 +227,7 @@ type Folder struct {
 	ItemCount      int    `json:"item_count"`
 	LocalTotal     int    `json:"local_total"`
 	LocalDone      int    `json:"local_done"`
+	AutoDownload   bool   `json:"auto_download"`
 }
 
 func (s *Store) ReconcileFolders(ctx context.Context, accountID int64, in []FolderInput, now int64) (map[string]int64, error) {
@@ -290,7 +291,8 @@ func (s *Store) ReconcileFolders(ctx context.Context, accountID int64, in []Fold
 func (s *Store) ListFolders(ctx context.Context, accountID int64) ([]Folder, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT f.id, f.account_id, f.remote_id, f.title, f.kind, f.owner_id, f.privacy, f.remote_count, f.state, f.last_full_sync_at,
-		       (SELECT COUNT(*) FROM folder_items fi WHERE fi.folder_id = f.id AND fi.state <> 'removed') AS item_count
+		       (SELECT COUNT(*) FROM folder_items fi WHERE fi.folder_id = f.id AND fi.state <> 'removed') AS item_count,
+		       COALESCE((SELECT fp.auto_download FROM folder_preferences fp WHERE fp.folder_id = f.id), 0)
 		FROM folders f
 		WHERE f.account_id = ?
 		ORDER BY CASE f.state WHEN 'active' THEN 0 ELSE 1 END, f.kind, f.title`, accountID)
@@ -301,12 +303,35 @@ func (s *Store) ListFolders(ctx context.Context, accountID int64) ([]Folder, err
 	var out []Folder
 	for rows.Next() {
 		var f Folder
-		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.Title, &f.Kind, &f.OwnerID, &f.Privacy, &f.RemoteCount, &f.State, &f.LastFullSyncAt, &f.ItemCount); err != nil {
+		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.Title, &f.Kind, &f.OwnerID, &f.Privacy, &f.RemoteCount, &f.State, &f.LastFullSyncAt, &f.ItemCount, &f.AutoDownload); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
 	}
 	return out, rows.Err()
+}
+
+// SetFolderAutoDownload updates a preference only when the folder belongs to
+// the supplied account. A missing or foreign folder returns false.
+func (s *Store) SetFolderAutoDownload(ctx context.Context, accountID, folderID int64, enabled bool, now int64) (bool, error) {
+	value := 0
+	if enabled {
+		value = 1
+	}
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO folder_preferences(folder_id, auto_download, updated_at, after_run_id)
+		SELECT id, ?, ?, COALESCE((SELECT MAX(id) FROM sync_runs WHERE account_id = folders.account_id), 0)
+		FROM folders WHERE id = ? AND account_id = ?
+		ON CONFLICT(folder_id) DO UPDATE SET
+			after_run_id = CASE WHEN excluded.auto_download = 1 AND folder_preferences.auto_download = 0
+				THEN excluded.after_run_id ELSE folder_preferences.after_run_id END,
+			auto_download = excluded.auto_download, updated_at = excluded.updated_at`,
+		value, now, folderID, accountID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // AddSource registers an additional sync source. Its remote id is stable so reconciliation can
@@ -339,10 +364,11 @@ func (s *Store) AddSource(ctx context.Context, accountID int64, kind, ownerID, r
 
 func (s *Store) ListSources(ctx context.Context, accountID int64) ([]Folder, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, account_id, remote_id, title, kind, owner_id, privacy, remote_count, state, last_full_sync_at, 0
-		FROM folders
-		WHERE account_id = ? AND kind <> 'favorite' AND state = 'active'
-		ORDER BY kind, title`, accountID)
+		SELECT f.id, f.account_id, f.remote_id, f.title, f.kind, f.owner_id, f.privacy, f.remote_count, f.state, f.last_full_sync_at, 0,
+		       COALESCE((SELECT fp.auto_download FROM folder_preferences fp WHERE fp.folder_id = f.id), 0)
+		FROM folders f
+		WHERE f.account_id = ? AND f.kind <> 'favorite' AND f.state = 'active'
+		ORDER BY f.kind, f.title`, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +376,7 @@ func (s *Store) ListSources(ctx context.Context, accountID int64) ([]Folder, err
 	var out []Folder
 	for rows.Next() {
 		var f Folder
-		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.Title, &f.Kind, &f.OwnerID, &f.Privacy, &f.RemoteCount, &f.State, &f.LastFullSyncAt, &f.ItemCount); err != nil {
+		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.Title, &f.Kind, &f.OwnerID, &f.Privacy, &f.RemoteCount, &f.State, &f.LastFullSyncAt, &f.ItemCount, &f.AutoDownload); err != nil {
 			return nil, err
 		}
 		out = append(out, f)

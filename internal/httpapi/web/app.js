@@ -1327,6 +1327,7 @@ function sourceRow(folder, site) {
         <div class="source-menu" hidden data-source-menu-panel="${folder.id}">
           <button type="button" data-sync-source="${esc(folder.remote_id)}" ${running ? "disabled" : ""}>${icon("arrows-clockwise")} 同步此来源</button>
           ${site.download && canDownload ? `<button type="button" data-download-source="${folder.id}">${icon("download-simple")} 下载未备份</button>` : ""}
+          ${site.download ? `<button type="button" role="switch" aria-checked="${!!folder.auto_download}" data-auto-download-source="${folder.id}" title="下次同步成功后下载此收藏夹所有未备份视频">${icon("download-simple")} 同步后下载 · ${folder.auto_download ? "已开启" : "已关闭"}</button>` : ""}
         </div>
       </div>
     </div>`;
@@ -1358,6 +1359,28 @@ function bindSourceEvents(root) {
     btn.addEventListener("click", () => {
       closeSourceMenus();
       downloadSource(Number(btn.dataset.downloadSource));
+    });
+  });
+  root.querySelectorAll("[data-auto-download-source]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const folder = state.folders.find((entry) => entry.id === Number(btn.dataset.autoDownloadSource));
+      if (!folder) return;
+      btn.disabled = true;
+      const accountID = state.me?.id;
+      try {
+        const result = await api(`/api/folders/${folder.id}/auto-download`, {
+          method: "PUT", body: { auto_download: !folder.auto_download },
+        });
+        if (state.me?.id !== accountID) return;
+        folder.auto_download = result.auto_download;
+        closeSourceMenus();
+        renderSourcePanel();
+        toast(folder.auto_download ? "已开启，下次同步成功后下载未备份视频。" : "已关闭同步后下载。");
+      } catch (err) {
+        handleError(err);
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 }

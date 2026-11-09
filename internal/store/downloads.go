@@ -122,11 +122,33 @@ func (s *Store) SetSettings(ctx context.Context, values map[string]string, now i
 }
 
 func (s *Store) CreateDownloadTasks(ctx context.Context, accountID int64, quality int, inputs []DownloadTaskInput, now int64) (created, skipped int, err error) {
+	return s.createDownloadTasks(ctx, accountID, 0, 0, quality, inputs, now, false)
+}
+
+// CreateAutoDownloadTasks retries failed/missing work but preserves tasks that
+// the user explicitly canceled.
+func (s *Store) CreateAutoDownloadTasks(ctx context.Context, accountID, folderID, runID int64, quality int, inputs []DownloadTaskInput, now int64) (created, skipped int, err error) {
+	return s.createDownloadTasks(ctx, accountID, folderID, runID, quality, inputs, now, true)
+}
+
+func (s *Store) createDownloadTasks(ctx context.Context, accountID, folderID, runID int64, quality int, inputs []DownloadTaskInput, now int64, preserveCanceled bool) (created, skipped int, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if preserveCanceled {
+		var enabled bool
+		err := tx.QueryRowContext(ctx, `SELECT fp.auto_download FROM folder_preferences fp
+			JOIN folders f ON f.id = fp.folder_id WHERE f.id = ? AND f.account_id = ? AND f.state = 'active'
+			AND ? > fp.after_run_id`, folderID, accountID, runID).Scan(&enabled)
+		if errors.Is(err, sql.ErrNoRows) || err == nil && !enabled {
+			return 0, len(inputs), nil
+		}
+		if err != nil {
+			return 0, 0, err
+		}
+	}
 	for _, in := range inputs {
 		// A terminal unsuccessful attempt can be intentionally downloaded again
 		// with a new quality. Reuse its row so local status stays tied to the
@@ -137,7 +159,10 @@ func (s *Store) CreateDownloadTasks(ctx context.Context, accountID int64, qualit
 			SELECT id, state FROM download_tasks
 			WHERE account_id = ? AND remote_id = ? AND part_id = ?
 			ORDER BY id DESC LIMIT 1`, accountID, in.RemoteID, in.PartID).Scan(&existingID, &existingState)
-		if err == nil && (existingState == "failed" || existingState == "canceled" || existingState == "missing") {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return created, skipped, err
+		}
+		if err == nil && (existingState == "failed" || existingState == "missing" || (existingState == "canceled" && !preserveCanceled)) {
 			res, err := tx.ExecContext(ctx, `
 				UPDATE download_tasks SET
 					site = ?, page_url = ?, video_title = ?, page_title = ?, page_no = ?, page_count = ?, duration = ?,

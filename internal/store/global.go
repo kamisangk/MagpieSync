@@ -94,7 +94,8 @@ func (s *Store) GetRunAll(ctx context.Context, id int64) (*Run, error) {
 func (s *Store) AllFoldersAll(ctx context.Context) ([]Folder, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT f.id, f.account_id, f.remote_id, f.title, f.kind, f.owner_id, f.privacy, f.remote_count, f.state, f.last_full_sync_at,
-		       (SELECT COUNT(*) FROM folder_items fi WHERE fi.folder_id = f.id AND fi.state <> 'removed') AS item_count
+		       (SELECT COUNT(*) FROM folder_items fi WHERE fi.folder_id = f.id AND fi.state <> 'removed') AS item_count,
+		       COALESCE((SELECT fp.auto_download FROM folder_preferences fp WHERE fp.folder_id = f.id), 0)
 		FROM folders f
 		ORDER BY f.account_id, CASE f.state WHEN 'active' THEN 0 ELSE 1 END, f.kind, f.title`)
 	if err != nil {
@@ -104,7 +105,7 @@ func (s *Store) AllFoldersAll(ctx context.Context) ([]Folder, error) {
 	var out []Folder
 	for rows.Next() {
 		var f Folder
-		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.Title, &f.Kind, &f.OwnerID, &f.Privacy, &f.RemoteCount, &f.State, &f.LastFullSyncAt, &f.ItemCount); err != nil {
+		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.Title, &f.Kind, &f.OwnerID, &f.Privacy, &f.RemoteCount, &f.State, &f.LastFullSyncAt, &f.ItemCount, &f.AutoDownload); err != nil {
 			return nil, err
 		}
 		out = append(out, f)

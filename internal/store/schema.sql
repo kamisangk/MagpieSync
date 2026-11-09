@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS folders (
     UNIQUE(account_id, remote_id)
 );
 
+CREATE TABLE IF NOT EXISTS folder_preferences (
+    folder_id      INTEGER PRIMARY KEY REFERENCES folders(id) ON DELETE CASCADE,
+    auto_download  INTEGER NOT NULL DEFAULT 0,
+    after_run_id   INTEGER NOT NULL DEFAULT 0,
+    updated_at     INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS items (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,

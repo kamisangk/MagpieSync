@@ -153,6 +153,10 @@ func (m *Manager) Enqueue(ctx context.Context, accountID int64, quality int, inp
 	return m.store.CreateDownloadTasks(ctx, accountID, quality, inputs, now)
 }
 
+func (m *Manager) EnqueueAutomatic(ctx context.Context, accountID, folderID, runID int64, quality int, inputs []store.DownloadTaskInput) (int, int, error) {
+	return m.store.CreateAutoDownloadTasks(ctx, accountID, folderID, runID, quality, inputs, time.Now().Unix())
+}
+
 func (m *Manager) loop(ctx context.Context) {
 	for {
 		if ctx.Err() != nil {
