@@ -183,7 +183,7 @@ func (m *Manager) loop(ctx context.Context) {
 				return
 			case sem <- struct{}{}:
 			}
-			task, err := m.store.ClaimAnyDownloadTask(ctx, time.Now().Unix())
+			task, taskCtx, cancel, err := m.claimTask(ctx)
 			if err != nil || task == nil {
 				<-sem
 				if !sleepCtx(ctx, 2*time.Second) {
@@ -195,10 +195,6 @@ func (m *Manager) loop(ctx context.Context) {
 			go func(task *store.DownloadTask) {
 				defer m.wg.Done()
 				defer func() { <-sem }()
-				taskCtx, cancel := context.WithCancel(ctx)
-				m.mu.Lock()
-				m.cancels[task.ID] = cancel
-				m.mu.Unlock()
 				defer func() {
 					cancel()
 					m.mu.Lock()
@@ -209,6 +205,24 @@ func (m *Manager) loop(ctx context.Context) {
 			}(task)
 		}
 	}
+}
+
+// Claim and cancellation registration share the cleanup lock, so a canceled
+// worker remains visible even before its goroutine begins processing.
+func (m *Manager) claimTask(ctx context.Context) (*store.DownloadTask, context.Context, context.CancelFunc, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	excluded := make([]int64, 0, len(m.cancels))
+	for id := range m.cancels {
+		excluded = append(excluded, id)
+	}
+	task, err := m.store.ClaimAnyDownloadTaskExcept(ctx, time.Now().Unix(), excluded)
+	if err != nil || task == nil {
+		return task, nil, nil, err
+	}
+	taskCtx, cancel := context.WithCancel(ctx)
+	m.cancels[task.ID] = cancel
+	return task, taskCtx, cancel, nil
 }
 
 func (m *Manager) CancelTask(id int64) {

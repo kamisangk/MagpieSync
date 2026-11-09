@@ -647,6 +647,18 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .source-icon .icon { width: 15px; height: 15px; }
 .source-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); font-size: 13px; line-height: 18px; font-weight: 600; }
+.source-heading { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.source-heading .source-name { min-width: 0; }
+.source-archive-badge { flex: none; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--muted); background: var(--paper-deep); font-size: 10px; line-height: 16px; font-weight: 500; }
+.source-row.archived .source-name { color: var(--muted); }
+.source-row.archived.active .source-name { color: var(--ink-soft); }
+.source-archive-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--muted); background: var(--paper-deep); font-size: 12px; line-height: 18px; }
+.source-archive-notice .text-link { flex: none; font-size: 12px; }
+.source-delete-option { display: flex; align-items: center; gap: 8px; margin-top: 20px; color: var(--ink); font-size: 13px; line-height: 20px; }
+.source-delete-option input { flex: none; }
+.source-delete-note { margin-top: 6px; }
+.source-delete-result { margin-bottom: 16px; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere; }
+#source-delete-error { margin-top: 16px; }
 .source-meta { color: var(--muted); font-size: 11px; line-height: 16px; }
 .source-progress-mini { width: 32px; height: 2px; background: var(--paper-deep); overflow: hidden; border-radius: 999px; }
 .source-progress-mini > * { display: block; height: 100%; background: var(--accent); transform-origin: left center; border-radius: 999px; }
@@ -718,6 +730,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .source-menu button .icon { width: 14px; height: 14px; color: var(--muted); }
 .source-menu button:hover { background: var(--paper-deep); }
 .source-menu button:disabled { color: var(--faint); }
+.source-menu button.source-delete, .source-menu button.source-delete .icon { color: var(--red); }
 .source-empty, .library-empty {
   padding: 24px 0;
   color: var(--muted);
@@ -1341,6 +1354,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
   .source-panel { margin-bottom: 22px; }
   .source-panel.has-sources .mobile-source-picker { display: block; }
   .source-panel.has-sources .source-list { display: none; }
+  .source-archive-notice { align-items: flex-start; flex-direction: column; gap: 6px; }
   .items-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; }
   .item-body { padding: 8px; }
   .library-tools { padding-bottom: 12px; margin-bottom: 16px; }

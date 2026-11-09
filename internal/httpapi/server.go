@@ -119,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sites", s.handleSites)
 	mux.HandleFunc("GET /api/site-assets/{site}/{asset...}", s.handleSiteAsset)
 	mux.HandleFunc("GET /api/folders", s.handleFolders)
+	mux.HandleFunc("DELETE /api/folders/{id}", s.handleFolderDelete)
 	mux.HandleFunc("PUT /api/folders/{id}/auto-download", s.handleFolderAutoDownload)
 	mux.HandleFunc("GET /api/sources", s.handleSources)
 	mux.HandleFunc("POST /api/sources", s.handleSources)

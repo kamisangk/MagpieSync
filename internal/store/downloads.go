@@ -289,15 +289,31 @@ func (s *Store) ClaimDownloadTask(ctx context.Context, accountID int64, now int6
 // ClaimAnyDownloadTask claims the next pending task across all accounts. The
 // download manager resolves the account from the task itself.
 func (s *Store) ClaimAnyDownloadTask(ctx context.Context, now int64) (*DownloadTask, error) {
+	return s.ClaimAnyDownloadTaskExcept(ctx, now, nil)
+}
+
+// ClaimAnyDownloadTaskExcept leaves registered workers alone even if a user
+// resumed their row before the previous worker finished unwinding.
+func (s *Store) ClaimAnyDownloadTaskExcept(ctx context.Context, now int64, excluded []int64) (*DownloadTask, error) {
+	filter := ""
+	args := []any{now}
+	if len(excluded) > 0 {
+		placeholders := make([]string, len(excluded))
+		for i, id := range excluded {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		filter = " AND id NOT IN (" + strings.Join(placeholders, ",") + ")"
+	}
 	row := s.db.QueryRowContext(ctx, `
 		UPDATE download_tasks
 		SET state = 'running', attempts = attempts + 1, error = '', updated_at = ?
 		WHERE id = (
 			SELECT id FROM download_tasks
-			WHERE state = 'pending'
+			WHERE state = 'pending'`+filter+`
 			ORDER BY id LIMIT 1
 		)
-		RETURNING `+downloadColumns, now)
+		RETURNING `+downloadColumns, args...)
 	d, err := scanDownload(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

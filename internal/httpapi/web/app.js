@@ -36,6 +36,9 @@ const state = {
   toastTimer: null,
   modalReturnFocus: null,
   modalCancel: null,
+  modalBusy: false,
+  sourceDeletion: null,
+  sourceDeletionResult: null,
   sourceAddKind: "",
   collections: [],
   liveCollections: [],
@@ -913,6 +916,7 @@ function refreshCurrentView() {
 }
 
 function resetLibraryFilters() {
+  state.sourceDeletionResult = null;
   state.selectedSource = 0;
   state.filters = { q: "", folder_id: "", state: "", sort: "favorited" };
   state.items.page = 1;
@@ -1168,8 +1172,10 @@ async function loadFolders() {
     renderLibraryHeader();
     return;
   }
+  const accountID = state.me.id;
   try {
     const d = await api("/api/folders");
+    if (state.me?.id !== accountID) return;
     state.folders = d.folders || [];
     state.librarySummary = d.library_summary || {};
     if (state.selectedSource && !state.folders.some((f) => f.id === state.selectedSource)) {
@@ -1177,6 +1183,7 @@ async function loadFolders() {
       state.filters.folder_id = "";
     }
   } catch (err) {
+    if (state.me?.id !== accountID) return;
     handleError(err);
   }
   renderSourcePanel();
@@ -1218,6 +1225,21 @@ function renderSourcePanelAddButton() {
   const btn = $("#source-add");
   if (!btn) return;
   btn.hidden = !(site && sourceManualKinds(site).length && state.me);
+}
+
+function sourceGroups(site) {
+  const groups = sourceCategoryDefs(site).map((cat) => ({ id: cat.id, name: cat.name, folders: [] }));
+  const other = { id: "other", name: "其他", folders: [] };
+  const archived = { id: "archived", name: "已归档", folders: [] };
+  for (const folder of state.folders) {
+    if (folder.state === "archived") {
+      archived.folders.push(folder);
+      continue;
+    }
+    const category = sourceCategoryOf(folder, site);
+    (groups.find((group) => group.id === category) || other).folders.push(folder);
+  }
+  return [...groups, other, archived].filter((group) => group.folders.length);
 }
 
 function renderSourcePanel() {
@@ -1263,17 +1285,7 @@ function renderSourcePanel() {
       </span>
     </button>
   </div>`;
-  const categories = sourceCategoryDefs(site);
-  const groups = categories.map((cat) => ({ id: cat.id, name: cat.name, folders: [] }));
-  const extra = { id: "other", name: "其他", folders: [] };
-  for (const folder of state.folders) {
-	const category = sourceCategoryOf(folder, site);
-    const group = groups.find((g) => g.id === category);
-    if (group) group.folders.push(folder);
-    else extra.folders.push(folder);
-  }
-  if (extra.folders.length) groups.push(extra);
-  const html = groups.filter((g) => g.folders.length).map((group) => `
+  const html = sourceGroups(site).map((group) => `
     <div class="source-group">
       <p class="source-group-label">${esc(group.name)}<span>${group.folders.length}</span></p>
       ${group.folders.map((folder) => sourceRow(folder, site)).join("")}
@@ -1285,19 +1297,10 @@ function renderSourcePanel() {
 function renderMobileSourceSelect(site) {
   const select = $("#mobile-source-select");
   if (!select) return;
-  const groups = sourceCategoryDefs(site).map((category) => ({ ...category, folders: [] }));
-  const other = { name: "其他", folders: [] };
-  for (const folder of state.folders) {
-    const categoryID = sourceCategoryOf(folder, site);
-    const group = groups.find((entry) => entry.id === categoryID);
-    (group || other).folders.push(folder);
-  }
-  if (other.folders.length) groups.push(other);
-
   const options = [`<option value="0">全部视频</option>`];
-  for (const group of groups.filter((entry) => entry.folders.length)) {
+  for (const group of sourceGroups(site)) {
     options.push(`<optgroup label="${esc(group.name)}">${group.folders.map((folder) =>
-      `<option value="${folder.id}">${esc(folder.title)} (${formatCount(folder.item_count)})</option>`,
+      `<option value="${folder.id}">${esc(folder.title)}${folder.state === "archived" ? " · 已归档" : ""} (${formatCount(folder.item_count)})</option>`,
     ).join("")}</optgroup>`);
   }
   select.innerHTML = options.join("");
@@ -1307,17 +1310,18 @@ function renderMobileSourceSelect(site) {
 
 function sourceRow(folder, site) {
   const active = state.selectedSource === folder.id;
+  const archived = folder.state === "archived";
   const total = Number(folder.local_total || 0);
   const done = Number(folder.local_done || 0);
   const ratio = total > 0 ? Math.min(1, done / total) : 0;
   const canDownload = Number(folder.item_count) > 0 && (total === 0 || done < total);
   const running = isSyncRunning();
   return `
-    <div class="source-row ${active ? "active" : ""}" data-folder-row="${folder.id}">
+    <div class="source-row ${active ? "active" : ""} ${archived ? "archived" : ""}" data-folder-row="${folder.id}">
       <button class="source-select" type="button" data-source-id="${folder.id}">
         <span class="source-icon">${icon("folder-simple")}</span>
         <span class="source-copy">
-          <span class="source-name" title="${esc(folder.title)}">${esc(folder.title)}</span>
+          <span class="source-heading"><span class="source-name" title="${esc(folder.title)}">${esc(folder.title)}</span>${archived ? '<span class="source-archive-badge" title="远端列表中已无此来源，本地记录与已下载文件仍保留。">已归档</span>' : ""}</span>
           <span class="source-meta">${esc(folder.kind_label || folder.kind)} · ${formatCount(folder.item_count)} 条${total ? ` · 已备份 ${done}/${total}` : ""}</span>
         </span>
         ${total ? `<span class="source-progress-mini"><span style="display:block;height:100%;background:var(--accent);transform:scaleX(${ratio});transform-origin:left center;"></span></span>` : ""}
@@ -1325,9 +1329,10 @@ function sourceRow(folder, site) {
       <div class="source-more">
         <button class="source-more-btn" type="button" aria-label="来源操作" aria-expanded="false" data-source-menu="${folder.id}">${icon("dots-three")}</button>
         <div class="source-menu" hidden data-source-menu-panel="${folder.id}">
-          <button type="button" data-sync-source="${esc(folder.remote_id)}" ${running ? "disabled" : ""}>${icon("arrows-clockwise")} 同步此来源</button>
+          ${!archived ? `<button type="button" data-sync-source="${esc(folder.remote_id)}" ${running ? "disabled" : ""}>${icon("arrows-clockwise")} 同步此来源</button>` : ""}
           ${site.download && canDownload ? `<button type="button" data-download-source="${folder.id}">${icon("download-simple")} 下载未备份</button>` : ""}
-          ${site.download ? `<button type="button" role="switch" aria-checked="${!!folder.auto_download}" data-auto-download-source="${folder.id}" title="下次同步成功后下载此收藏夹所有未备份视频">${icon("download-simple")} 同步后下载 · ${folder.auto_download ? "已开启" : "已关闭"}</button>` : ""}
+          ${site.download && !archived ? `<button type="button" role="switch" aria-checked="${!!folder.auto_download}" data-auto-download-source="${folder.id}" title="下次同步成功后下载此收藏夹所有未备份视频">${icon("download-simple")} 同步后下载 · ${folder.auto_download ? "已开启" : "已关闭"}</button>` : ""}
+          ${archived ? `<button class="source-delete" type="button" data-delete-source="${folder.id}">${icon("trash")} 删除本地来源</button>` : ""}
         </div>
       </div>
     </div>`;
@@ -1364,7 +1369,7 @@ function bindSourceEvents(root) {
   root.querySelectorAll("[data-auto-download-source]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const folder = state.folders.find((entry) => entry.id === Number(btn.dataset.autoDownloadSource));
-      if (!folder) return;
+      if (!folder || folder.state === "archived") return;
       btn.disabled = true;
       const accountID = state.me?.id;
       try {
@@ -1383,6 +1388,102 @@ function bindSourceEvents(root) {
       }
     });
   });
+  root.querySelectorAll("[data-delete-source]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      closeSourceMenus();
+      openDeleteSourceModal(Number(btn.dataset.deleteSource));
+    });
+  });
+}
+
+function openDeleteSourceModal(folderID) {
+  const folder = state.folders.find((entry) => entry.id === folderID);
+  if (!state.me || !folder || folder.state !== "archived") return;
+  const request = { accountID: state.me.id, folderID, pending: false };
+  openModal({
+    title: `删除本地来源“${folder.title}”？`,
+    kicker: "已归档来源",
+    body: `
+      <p>将移除此收藏夹，保留视频信息和下载历史。</p>
+      <label class="source-delete-option"><input id="source-delete-files" type="checkbox" aria-describedby="source-delete-sharing"><span>同时删除本地已下载文件</span></label>
+      <p id="source-delete-sharing" class="source-delete-note">其他收藏夹或账户仍引用的视频文件会保留。</p>
+      <p id="source-delete-error" class="field-error" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" id="source-delete-cancel">取消</button>
+        <button class="btn danger" type="button" id="source-delete-confirm">删除本地来源</button>
+      </div>`,
+    focus: "#source-delete-cancel",
+    onMount: () => {
+      state.sourceDeletion = request;
+      $("#source-delete-cancel").onclick = cancelModal;
+      $("#source-delete-confirm").onclick = () => deleteArchivedSource(request);
+    },
+  });
+}
+
+async function deleteArchivedSource(request) {
+  if (request.pending || state.sourceDeletion !== request || state.me?.id !== request.accountID) return;
+  request.pending = true;
+  const deleteFiles = $("#source-delete-files").checked;
+  const controls = [$("#source-delete-confirm"), $("#source-delete-cancel"), $("#source-delete-files"), $("#modal-close")];
+  controls.forEach((control) => { control.disabled = true; });
+  state.modalBusy = true;
+  $("#source-delete-confirm").textContent = "正在删除…";
+  $("#source-delete-error").hidden = true;
+  try {
+    const result = await api(`/api/folders/${request.folderID}`, {
+      method: "DELETE", body: { delete_local_files: deleteFiles },
+    });
+    if (state.me?.id !== request.accountID || state.sourceDeletion !== request) return;
+    if (state.selectedSource === request.folderID) {
+      state.selectedSource = 0;
+      state.filters.folder_id = "";
+      state.items.page = 1;
+    }
+    closeModal();
+    const parts = ["已删除本地来源"];
+    if (deleteFiles) {
+      parts.push(`删除 ${formatCount(result.deleted_files || 0)} 个文件`);
+      if (result.protected_videos) parts.push(`保留 ${formatCount(result.protected_videos)} 个共用视频`);
+      if (result.skipped_files) parts.push(`跳过 ${formatCount(result.skipped_files)} 个文件`);
+      if (result.failed_files) parts.push(`${formatCount(result.failed_files)} 个文件删除失败`);
+      if (result.partial_cleanup && !result.skipped_files && !result.failed_files) parts.push("部分文件已保留");
+    }
+    const reasons = Array.isArray(result.reasons) ? [...new Set(result.reasons.filter((reason) => typeof reason === "string" && reason.trim()))] : [];
+    state.sourceDeletionResult = { accountID: request.accountID, message: `${parts.join("，")}${reasons.length ? `。${reasons.join("；")}` : "。"}` };
+    toast(parts.join("，"), !!result.failed_files);
+    await loadFolders();
+    if (state.me?.id !== request.accountID) return;
+    await Promise.all([loadItems(), loadDownloads(), refreshDeletionOverview(request.accountID)]);
+  } catch (err) {
+    if (state.me?.id !== request.accountID || state.sourceDeletion !== request) return;
+    if (err.status === 401) {
+      closeModal();
+      handleError(err);
+      return;
+    }
+    const error = $("#source-delete-error");
+    error.textContent = err.message || "删除失败，请稍后重试。";
+    error.hidden = false;
+  } finally {
+    request.pending = false;
+    controls.forEach((control) => { control.disabled = false; });
+    if (state.sourceDeletion === request) {
+      state.modalBusy = false;
+      $("#source-delete-confirm").textContent = "删除本地来源";
+    }
+  }
+}
+
+async function refreshDeletionOverview(accountID) {
+  try {
+    const overview = await api("/api/overview");
+    if (state.me?.id !== accountID) return;
+    state.overview = overview;
+    renderDashboard();
+  } catch (err) {
+    if (state.me?.id === accountID) handleError(err);
+  }
 }
 
 async function selectSource(id) {
@@ -1402,11 +1503,23 @@ function renderLibraryHeader() {
   const count = $("#library-count");
   const sync = $("#library-sync");
   const download = $("#library-download");
+  const archiveNotice = $("#source-archive-notice");
+  const archived = folder?.state === "archived";
+  if (archiveNotice) archiveNotice.hidden = !archived || !state.me || !site;
+  const deletionResult = $("#source-delete-result");
+  if (deletionResult) {
+    const result = state.sourceDeletionResult;
+    deletionResult.hidden = !result || result.accountID !== state.me?.id;
+    deletionResult.textContent = deletionResult.hidden ? "" : result.message;
+  }
   if (!state.me || !site) {
     if (lede) lede.textContent = "";
     if (title) title.textContent = "全部视频";
     if (count) count.textContent = "未连接站点";
-    if (sync) sync.textContent = "同步此账户";
+    if (sync) {
+      sync.hidden = false;
+      sync.textContent = "同步此账户";
+    }
     if (download) download.hidden = true;
     return;
   }
@@ -1430,6 +1543,7 @@ function renderLibraryHeader() {
     }
   }
   if (sync) {
+    sync.hidden = archived;
     sync.innerHTML = `${icon("arrows-clockwise")}${folder ? "同步此来源" : "同步此账户"}`;
     sync.dataset.syncMode = folder ? "folder" : "account";
   }
@@ -1455,6 +1569,7 @@ async function loadItems() {
     return;
   }
   syncFilters();
+  const accountID = state.me.id;
   const seq = ++state.itemsSeq;
   state.itemsLoading = true;
   state.itemsError = "";
@@ -1469,15 +1584,15 @@ async function loadItems() {
   });
   try {
     const d = await api(`/api/items?${params.toString()}`);
-    if (seq !== state.itemsSeq) return;
+    if (seq !== state.itemsSeq || state.me?.id !== accountID) return;
     state.items = { ...d, page: Number(d.page) || 1, page_size: Number(d.page_size) || 48 };
   } catch (err) {
-    if (seq !== state.itemsSeq) return;
+    if (seq !== state.itemsSeq || state.me?.id !== accountID) return;
     state.items = { items: [], total: 0, page: 1, page_size: 48 };
     state.itemsError = err.message || "读取视频失败";
     if (err.status !== 401) handleError(err);
   } finally {
-    if (seq === state.itemsSeq) {
+    if (seq === state.itemsSeq && state.me?.id === accountID) {
       state.itemsLoading = false;
       renderItems();
       renderPager();
@@ -1687,12 +1802,15 @@ async function loadDownloads() {
     renderDownloads();
     return;
   }
+  const accountID = state.me.id;
   try {
     const d = await api("/api/downloads?limit=100");
+    if (state.me?.id !== accountID) return;
     state.downloads = d.tasks || [];
     state.downloadStats = d.counts || {};
     state.downloadInfo = d;
   } catch (err) {
+    if (state.me?.id !== accountID) return;
     handleError(err);
   }
   renderDownloads();
@@ -2337,6 +2455,9 @@ async function saveSettings(event) {
 /* Modals */
 
 function openModal(options) {
+  state.modalBusy = false;
+  state.sourceDeletion = null;
+  $("#modal-close").disabled = false;
   state.modalReturnFocus = document.activeElement;
   state.modalCancel = typeof options.onCancel === "function" ? options.onCancel : null;
   const modal = $("#modal");
@@ -2366,6 +2487,8 @@ function closeModal() {
   }
   state.siteConnect = null;
   state.modalCancel = null;
+  state.modalBusy = false;
+  state.sourceDeletion = null;
   modal.hidden = true;
   document.body.classList.remove("modal-open");
   $("#app-shell").inert = false;
@@ -2375,6 +2498,7 @@ function closeModal() {
 }
 
 function cancelModal() {
+  if (state.modalBusy) return;
   const onCancel = state.modalCancel;
   closeModal();
   if (onCancel) setTimeout(onCancel, 0);
@@ -3034,8 +3158,10 @@ function bind() {
   $("#source-add").onclick = openAddSourceModal;
   $("#library-sync").onclick = () => {
     const folder = selectedSource();
+    if (folder?.state === "archived") return;
     startSync(folder ? folder.remote_id : "all");
   };
+  $("#source-archive-delete").onclick = () => openDeleteSourceModal(state.selectedSource);
   $("#library-download").onclick = () => {
     if (state.selectedSource) downloadSource(state.selectedSource);
   };

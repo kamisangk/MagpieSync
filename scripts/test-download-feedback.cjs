@@ -7,6 +7,7 @@ const calls = [];
 const state = { view: "library", es: null, downloads: [] };
 const context = vm.createContext({
  state,
+ applicationURL: (path) => path,
  EventSource: function () { this.close = () => {}; },
  toast: (message, error = false) => messages.push({ message, error }),
  loadDownloadsQuiet: () => calls.push("quiet"),
