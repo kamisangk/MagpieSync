@@ -13,7 +13,7 @@ import (
 
 func (s *Store) CountItemsAll(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items`).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items i WHERE `+visibleItemSQL).Scan(&n)
 	return n, err
 }
 
@@ -25,14 +25,8 @@ func (s *Store) CountFoldersAll(ctx context.Context) (int, error) {
 
 func (s *Store) CountDownloadedVideosAll(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM (
-			SELECT account_id, remote_id
-			FROM download_tasks
-			WHERE remote_id <> ''
-			GROUP BY account_id, remote_id
-			HAVING SUM(CASE WHEN state = 'done' THEN 1 ELSE 0 END) = COUNT(*)
-		)`).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `WITH local AS (`+localStatusSQL+`)
+        SELECT COUNT(*) FROM local WHERE state = 'done'`).Scan(&n)
 	return n, err
 }
 
@@ -94,7 +88,7 @@ func (s *Store) GetRunAll(ctx context.Context, id int64) (*Run, error) {
 func (s *Store) AllFoldersAll(ctx context.Context) ([]Folder, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT f.id, f.account_id, f.remote_id, f.title, f.kind, f.owner_id, f.privacy, f.remote_count, f.state, f.last_full_sync_at,
-		       (SELECT COUNT(*) FROM folder_items fi WHERE fi.folder_id = f.id AND fi.state <> 'removed') AS item_count,
+		       (SELECT COUNT(*) FROM folder_items fi JOIN items i ON i.id = fi.item_id WHERE fi.folder_id = f.id AND `+visibleFolderItemSQL+`) AS item_count,
 		       COALESCE((SELECT fp.auto_download FROM folder_preferences fp WHERE fp.folder_id = f.id), 0)
 		FROM folders f
 		ORDER BY f.account_id, CASE f.state WHEN 'active' THEN 0 ELSE 1 END, f.kind, f.title`)

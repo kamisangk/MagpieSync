@@ -646,11 +646,21 @@ func (s *Server) handleItems(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	f := store.ItemFilter{
-		State: q.Get("state"),
-		Query: strings.TrimSpace(q.Get("q")),
-		Sort:  q.Get("sort"),
+		State:       q.Get("state"),
+		RemoteState: q.Get("remote_state"),
+		LocalState:  q.Get("local_state"),
+		Query:       strings.TrimSpace(q.Get("q")),
+		Sort:        q.Get("sort"),
 	}
-	f.FolderID, _ = strconv.ParseInt(q.Get("folder_id"), 10, 64)
+	if !validItemFilters(f) {
+		writeError(w, http.StatusBadRequest, "invalid or conflicting status filters")
+		return
+	}
+	var valid bool
+	f.FolderID, valid = s.itemFolderContext(w, r, a.ID)
+	if !valid {
+		return
+	}
 	f.Page, _ = strconv.Atoi(q.Get("page"))
 	f.PageSize, _ = strconv.Atoi(q.Get("page_size"))
 	if f.Page < 1 {
@@ -693,6 +703,24 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusNotFound, "item not found")
 		return
+	}
+	folderID, valid := s.itemFolderContext(w, r, a.ID)
+	if !valid {
+		return
+	}
+	if folderID > 0 {
+		found := false
+		for _, folder := range item.Folders {
+			if folder.ID == folderID {
+				item.RemoteState = folder.State
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "item not found in folder")
+			return
+		}
 	}
 	items := []store.Item{*item}
 	if err := s.attachItemLocal(r.Context(), a.ID, items); err != nil {

@@ -291,7 +291,7 @@ func (s *Store) ReconcileFolders(ctx context.Context, accountID int64, in []Fold
 func (s *Store) ListFolders(ctx context.Context, accountID int64) ([]Folder, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT f.id, f.account_id, f.remote_id, f.title, f.kind, f.owner_id, f.privacy, f.remote_count, f.state, f.last_full_sync_at,
-		       (SELECT COUNT(*) FROM folder_items fi WHERE fi.folder_id = f.id AND fi.state <> 'removed') AS item_count,
+		       (SELECT COUNT(*) FROM folder_items fi JOIN items i ON i.id = fi.item_id WHERE fi.folder_id = f.id AND `+visibleFolderItemSQL+`) AS item_count,
 		       COALESCE((SELECT fp.auto_download FROM folder_preferences fp WHERE fp.folder_id = f.id), 0)
 		FROM folders f
 		WHERE f.account_id = ?
@@ -426,6 +426,7 @@ type Item struct {
 	PublishedAt int64       `json:"published_at"`
 	Attr        int         `json:"attr"`
 	State       string      `json:"state"`
+	RemoteState string      `json:"remote_state"`
 	FirstSeenAt int64       `json:"first_seen_at"`
 	LastSeenAt  int64       `json:"last_seen_at"`
 	UpdatedAt   int64       `json:"updated_at"`
@@ -589,13 +590,15 @@ func (t *Tx) InsertEvent(ctx context.Context, runID, itemID, folderID int64, kin
 // ---------- queries ----------
 
 type ItemFilter struct {
-	FolderID int64
-	State    string
-	AuthorID string
-	Query    string
-	Sort     string
-	Page     int
-	PageSize int
+	FolderID    int64
+	State       string
+	RemoteState string
+	LocalState  string
+	AuthorID    string
+	Query       string
+	Sort        string
+	Page        int
+	PageSize    int
 }
 
 func (s *Store) QueryItems(ctx context.Context, accountID int64, f ItemFilter) ([]Item, int, error) {
@@ -606,10 +609,25 @@ func (s *Store) QueryItems(ctx context.Context, accountID int64, f ItemFilter) (
 		f.PageSize = 60
 	}
 	where := []string{"i.account_id = ?"}
+	from := " FROM items i"
+	remoteState := "i.state"
 	args := []any{accountID}
 	if f.FolderID > 0 {
-		where = append(where, "EXISTS (SELECT 1 FROM folder_items fi WHERE fi.folder_id = ? AND fi.item_id = i.id)")
+		from += " JOIN folder_items fi ON fi.item_id = i.id JOIN folders f ON f.id = fi.folder_id AND f.account_id = i.account_id"
+		where = append(where, "fi.folder_id = ?", visibleFolderItemSQL)
 		args = append(args, f.FolderID)
+		remoteState = "fi.state"
+	} else {
+		where = append(where, visibleItemSQL)
+	}
+	if f.RemoteState != "" {
+		where = append(where, remoteState+" = ?")
+		args = append(args, f.RemoteState)
+	}
+	if f.LocalState != "" {
+		from += " LEFT JOIN local l ON l.account_id = i.account_id AND l.remote_id = i.remote_id"
+		where = append(where, "COALESCE(l.state, 'none') = ?")
+		args = append(args, f.LocalState)
 	}
 	if f.State != "" {
 		where = append(where, "i.state = ?")
@@ -624,10 +642,14 @@ func (s *Store) QueryItems(ctx context.Context, accountID int64, f ItemFilter) (
 		where = append(where, "(i.title LIKE ? OR i.author_name LIKE ? OR i.summary LIKE ?)")
 		args = append(args, like, like, like)
 	}
-	base := " FROM items i WHERE " + strings.Join(where, " AND ")
+	prefix := ""
+	if f.LocalState != "" {
+		prefix = "WITH local AS (" + localStatusSQL + ") "
+	}
+	base := from + " WHERE " + strings.Join(where, " AND ")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*)"+base, args...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, prefix+"SELECT COUNT(*)"+base, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -641,8 +663,8 @@ func (s *Store) QueryItems(ctx context.Context, accountID int64, f ItemFilter) (
 		order = "i.title ASC, i.id ASC"
 	}
 
-	q := `SELECT i.id, i.account_id, i.remote_id, i.kind, i.title, i.url, i.cover_url, i.duration,
-		i.author_id, i.author_name, i.summary, i.published_at, i.attr, i.state, i.first_seen_at, i.last_seen_at, i.updated_at` +
+	q := prefix + `SELECT i.id, i.account_id, i.remote_id, i.kind, i.title, i.url, i.cover_url, i.duration,
+		i.author_id, i.author_name, i.summary, i.published_at, i.attr, i.state, i.first_seen_at, i.last_seen_at, i.updated_at, ` + remoteState +
 		base + " ORDER BY " + order + " LIMIT ? OFFSET ?"
 	rows, err := s.db.QueryContext(ctx, q, append(args, f.PageSize, (f.Page-1)*f.PageSize)...)
 	if err != nil {
@@ -652,7 +674,7 @@ func (s *Store) QueryItems(ctx context.Context, accountID int64, f ItemFilter) (
 	var out []Item
 	for rows.Next() {
 		var it Item
-		if err := scanItem(rows, &it); err != nil {
+		if err := scanItem(rows, &it, &it.RemoteState); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, it)
@@ -664,10 +686,15 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func scanItem(row scanner, it *Item) error {
-	return row.Scan(&it.ID, &it.AccountID, &it.RemoteID, &it.Kind, &it.Title, &it.URL, &it.CoverURL,
+func scanItem(row scanner, it *Item, extra ...any) error {
+	dest := []any{&it.ID, &it.AccountID, &it.RemoteID, &it.Kind, &it.Title, &it.URL, &it.CoverURL,
 		&it.Duration, &it.AuthorID, &it.AuthorName, &it.Summary, &it.PublishedAt, &it.Attr, &it.State,
-		&it.FirstSeenAt, &it.LastSeenAt, &it.UpdatedAt)
+		&it.FirstSeenAt, &it.LastSeenAt, &it.UpdatedAt}
+	err := row.Scan(append(dest, extra...)...)
+	if it.RemoteState == "" {
+		it.RemoteState = it.State
+	}
+	return err
 }
 
 // FavoriteTime returns the latest local favorite timestamp for a remote item.
@@ -683,15 +710,14 @@ func (s *Store) FavoriteTime(ctx context.Context, accountID int64, remoteID stri
 }
 
 // ListFolderItems returns every current item in one folder for direct
-// downloads. It intentionally follows the same historical folder membership as
-// QueryItems, so removed/missing rows keep their local record.
+// downloads, following the same visibility policy as the library.
 func (s *Store) ListFolderItems(ctx context.Context, accountID, folderID int64) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT i.id, i.account_id, i.remote_id, i.kind, i.title, i.url, i.cover_url,
 			i.duration, i.author_id, i.author_name, i.summary, i.published_at, i.attr, i.state,
-			i.first_seen_at, i.last_seen_at, i.updated_at
+		i.first_seen_at, i.last_seen_at, i.updated_at, fi.state
 		FROM items i JOIN folder_items fi ON fi.item_id = i.id
-		WHERE i.account_id = ? AND fi.folder_id = ?
+		WHERE i.account_id = ? AND fi.folder_id = ? AND `+visibleFolderItemSQL+`
 		ORDER BY i.id`, accountID, folderID)
 	if err != nil {
 		return nil, err
@@ -700,7 +726,7 @@ func (s *Store) ListFolderItems(ctx context.Context, accountID, folderID int64) 
 	var out []Item
 	for rows.Next() {
 		var it Item
-		if err := scanItem(rows, &it); err != nil {
+		if err := scanItem(rows, &it, &it.RemoteState); err != nil {
 			return nil, err
 		}
 		out = append(out, it)
@@ -894,7 +920,7 @@ func (s *Store) AllFolderItems(ctx context.Context, accountID int64) ([]ExportFo
 
 func (s *Store) CountItems(ctx context.Context, accountID int64) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items WHERE account_id = ?`, accountID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items i WHERE i.account_id = ? AND `+visibleItemSQL, accountID).Scan(&n)
 	return n, err
 }
 

@@ -134,8 +134,12 @@ func TestEngineMissingRemovedAndRestore(t *testing.T) {
 		t.Fatalf("run3 = %+v", run3)
 	}
 	items, _, _ = st.QueryItems(ctx, accID, store.ItemFilter{FolderID: folders[0].ID, State: "removed", Page: 1, PageSize: 10})
-	if len(items) != 1 || items[0].RemoteID != "item-2" {
+	if len(items) != 0 {
 		t.Fatalf("removed items = %+v", items)
+	}
+	history, err := st.AllItems(ctx, accID)
+	if err != nil || len(history) != 2 || history[1].State != "removed" {
+		t.Fatalf("history=%+v err=%v", history, err)
 	}
 
 	src.items["1"] = []RemoteItem{item("item-1", "first"), item("item-2", "second")}
@@ -185,6 +189,123 @@ func TestEngineGuardSkipsRemovalOnSharpDrop(t *testing.T) {
 	run := mustRun(t, st, engine, accID)
 	if run.State != "suspicious" || run.ItemsMissing != 0 || run.ItemsRemoved != 0 {
 		t.Fatalf("guard run = %+v", run)
+	}
+	_, total, err := st.QueryItems(ctx, accID, store.ItemFilter{RemoteState: "active"})
+	if err != nil || total != 24 {
+		t.Fatalf("guard visibility=%d err=%v", total, err)
+	}
+}
+
+type interruptedPages struct {
+	*fakeSource
+	fail bool
+}
+
+func (s *interruptedPages) ListFolderPage(ctx context.Context, remote string, page, size int) (RemotePage, error) {
+	if s.fail && remote == "A" {
+		if page == 1 {
+			return RemotePage{Items: []RemoteItem{item("stay", "Stay")}, HasMore: true}, nil
+		}
+		return RemotePage{}, errors.New("fixture pagination unavailable")
+	}
+	return s.fakeSource.ListFolderPage(ctx, remote, page, size)
+}
+
+func TestRemoteRemovalRetainsOutputsAndWorkAcrossPartialSync(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "retention.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	account, err := st.UpsertAccount(ctx, "synthetic-status", "1", "One", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := []RemoteItem{item("stay", "Stay"), item("never", "Never"), item("downloaded", "Downloaded"), item("pending", "Pending"), item("shared", "Shared")}
+	src := &interruptedPages{fakeSource: &fakeSource{folders: []RemoteFolder{{RemoteID: "A", Title: "A"}, {RemoteID: "B", Title: "B"}}, items: map[string][]RemoteItem{"A": initial, "B": {item("shared", "Shared")}}}}
+	engine := NewEngine(st, func(context.Context, int64) (Source, error) { return src, nil })
+	engine.SetGrace(2)
+	if run := mustRun(t, st, engine, account); run.State != "success" {
+		t.Fatal(run)
+	}
+	if _, _, err := st.CreateDownloadTasks(ctx, account, 0, []store.DownloadTaskInput{{RemoteID: "downloaded", PartID: 1}, {RemoteID: "pending", PartID: 1}, {RemoteID: "shared", PartID: 1}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := st.ListDownloadTasks(ctx, account, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		if task.RemoteID != "pending" {
+			if err := st.FinishDownloadTask(ctx, task.ID, "done", "/fixture/"+task.RemoteID+".mp4", "", 0, "", 1, 2); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	folders, err := st.ListFolders(ctx, account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := folders[0].ID, folders[1].ID
+	src.items["A"] = initial[:1]
+	if run := mustRun(t, st, engine, account); run.ItemsMissing != 4 || run.ItemsRemoved != 0 {
+		t.Fatal(run)
+	}
+	_, total, err := st.QueryItems(ctx, account, store.ItemFilter{FolderID: a, RemoteState: "missing"})
+	if err != nil || total != 4 {
+		t.Fatal(total, err)
+	}
+	src.fail = true
+	for i := 0; i < 2; i++ {
+		if run := mustRun(t, st, engine, account); run.State != "partial" || run.ItemsRemoved != 0 {
+			t.Fatal(run)
+		}
+	}
+	_, total, err = st.QueryItems(ctx, account, store.ItemFilter{FolderID: a, RemoteState: "missing"})
+	if err != nil || total != 4 {
+		t.Fatal(total, err)
+	}
+	src.fail = false
+	if run := mustRun(t, st, engine, account); run.ItemsRemoved != 4 {
+		t.Fatal(run)
+	}
+	rows, total, err := st.QueryItems(ctx, account, store.ItemFilter{FolderID: a, RemoteState: "removed"})
+	if err != nil || total != 3 {
+		t.Fatal(rows, total, err)
+	}
+	for _, it := range rows {
+		if it.RemoteID == "never" {
+			t.Fatal("never downloaded retained")
+		}
+		if it.RemoteID == "shared" && it.State != "active" {
+			t.Fatal(it)
+		}
+	}
+	rows, total, err = st.QueryItems(ctx, account, store.ItemFilter{FolderID: b, RemoteState: "active"})
+	if err != nil || total != 1 || rows[0].RemoteID != "shared" {
+		t.Fatal(rows, total, err)
+	}
+	after, err := st.ListDownloadTasks(ctx, account, "", 20)
+	if err != nil || len(after) != len(tasks) {
+		t.Fatal(after, err)
+	}
+	for _, task := range after {
+		want := "done"
+		if task.RemoteID == "pending" {
+			want = "pending"
+		}
+		if task.State != want {
+			t.Fatal(task)
+		}
+	}
+	src.items["A"] = initial
+	if run := mustRun(t, st, engine, account); run.ItemsAdded != 0 {
+		t.Fatal(run)
+	}
+	_, total, err = st.QueryItems(ctx, account, store.ItemFilter{FolderID: a, RemoteState: "active"})
+	if err != nil || total != 5 {
+		t.Fatal(total, err)
 	}
 }
 

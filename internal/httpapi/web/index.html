@@ -174,12 +174,29 @@
                     <svg class="icon" aria-hidden="true"><use href="./icons.svg#magnifying-glass"></use></svg>
                     <input id="search-input" type="search" placeholder="搜索标题、作者、简介" aria-label="搜索视频">
                   </label>
-                  <select id="state-filter" aria-label="按状态筛选">
-                    <option value="">全部状态</option>
-                    <option value="active">正常</option>
-                    <option value="missing">疑似缺失</option>
-                    <option value="removed">已移除</option>
-                  </select>
+                  <label class="library-filter-field">
+                    <span>远端状态</span>
+                    <select id="remote-state-filter">
+                      <option value="">全部</option>
+                      <option value="active">正常收藏</option>
+                      <option value="missing">远端缺失待确认</option>
+                      <option value="removed">远端已移除</option>
+                    </select>
+                  </label>
+                  <label class="library-filter-field">
+                    <span>备份状态</span>
+                    <select id="local-state-filter">
+                      <option value="">全部</option>
+                      <option value="none">未下载</option>
+                      <option value="pending">等待下载</option>
+                      <option value="running">下载中</option>
+                      <option value="paused">已暂停</option>
+                      <option value="done">已备份</option>
+                      <option value="partial">部分备份</option>
+                      <option value="failed">下载失败</option>
+                      <option value="missing">本地文件丢失</option>
+                    </select>
+                  </label>
                   <select id="sort-select" aria-label="排序方式">
                     <option value="favorited">按收藏时间</option>
                     <option value="recent">按发现时间</option>

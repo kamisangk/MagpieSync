@@ -10,6 +10,7 @@ import (
 type LocalStatus struct {
 	State    string `json:"state"`
 	Done     int    `json:"done"`
+	Missing  int    `json:"missing"`
 	Total    int    `json:"total"`
 	FilePath string `json:"file_path,omitempty"`
 }
@@ -33,51 +34,20 @@ func (s *Store) LocalStatuses(ctx context.Context, accountID int64, remoteIDs []
 		placeholders[i] = "?"
 		args = append(args, remote_id)
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT remote_id,
-		       COUNT(*),
-		       SUM(CASE WHEN state = 'done' THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN state = 'paused' THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END),
-		       MAX(CASE WHEN state = 'done' AND file_path <> '' THEN file_path ELSE '' END)
-		FROM download_tasks
-		WHERE account_id = ? AND remote_id IN (`+strings.Join(placeholders, ",")+`)
-		GROUP BY remote_id`, args...)
+	rows, err := s.db.QueryContext(ctx, `WITH local AS (`+localStatusSQL+`)
+        SELECT remote_id, state, done, total, missing, file_path FROM local
+        WHERE account_id = ? AND remote_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var (
-			remote_id                string
-			total, done              int
-			running, pending, paused int
-			failed                   int
-			filePath                 string
-		)
-		if err := rows.Scan(&remote_id, &total, &done, &running, &pending, &paused, &failed, &filePath); err != nil {
+		var remoteID string
+		var status LocalStatus
+		if err := rows.Scan(&remoteID, &status.State, &status.Done, &status.Total, &status.Missing, &status.FilePath); err != nil {
 			return nil, err
 		}
-		status := LocalStatus{Total: total, Done: done, FilePath: filePath}
-		switch {
-		case total > 0 && done == total:
-			status.State = "done"
-		case running > 0:
-			status.State = "running"
-		case pending > 0:
-			status.State = "pending"
-		case paused > 0:
-			status.State = "paused"
-		case done > 0:
-			status.State = "partial"
-		case failed > 0:
-			status.State = "failed"
-		default:
-			status.State = "none"
-		}
-		out[remote_id] = status
+		out[remoteID] = status
 	}
 	return out, rows.Err()
 }
@@ -85,23 +55,16 @@ func (s *Store) LocalStatuses(ctx context.Context, accountID int64, remoteIDs []
 // FolderLocalCounts returns downloaded video counts for every local library.
 func (s *Store) FolderLocalCounts(ctx context.Context, accountID int64) (map[int64]FolderLocalCount, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		WITH per_item AS (
-			SELECT remote_id,
-			       COUNT(*) AS total,
-			       SUM(CASE WHEN state = 'done' THEN 1 ELSE 0 END) AS done
-			FROM download_tasks
-			WHERE account_id = ? AND remote_id <> ''
-			GROUP BY remote_id
-		)
+		WITH local AS (`+localStatusSQL+`)
 		SELECT f.id,
 		       COUNT(DISTINCT i.remote_id),
-		       COUNT(DISTINCT CASE WHEN p.done = p.total AND p.total > 0 THEN i.remote_id END)
+		       COUNT(DISTINCT CASE WHEN p.state = 'done' THEN i.remote_id END)
 		FROM folders f
-		JOIN folder_items fi ON fi.folder_id = f.id AND fi.state <> 'removed'
+		JOIN folder_items fi ON fi.folder_id = f.id
 		JOIN items i ON i.id = fi.item_id AND i.remote_id <> ''
-		LEFT JOIN per_item p ON p.remote_id = i.remote_id
-		WHERE f.account_id = ?
-		GROUP BY f.id`, accountID, accountID)
+		LEFT JOIN local p ON p.remote_id = i.remote_id AND p.account_id = i.account_id
+		WHERE f.account_id = ? AND `+visibleFolderItemSQL+`
+		GROUP BY f.id`, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,13 +131,7 @@ func uniqueNonEmpty(values []string) []string {
 
 func (s *Store) CountDownloadedVideos(ctx context.Context, accountID int64) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM (
-			SELECT remote_id
-			FROM download_tasks
-			WHERE account_id = ? AND remote_id <> ''
-			GROUP BY remote_id
-			HAVING SUM(CASE WHEN state = 'done' THEN 1 ELSE 0 END) = COUNT(*)
-		)`, accountID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `WITH local AS (`+localStatusSQL+`)
+        SELECT COUNT(*) FROM local WHERE account_id = ? AND state = 'done'`, accountID).Scan(&n)
 	return n, err
 }

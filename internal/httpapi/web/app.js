@@ -13,7 +13,8 @@ const state = {
   itemsSeq: 0,
   itemsLoading: false,
   itemsError: "",
-  filters: { q: "", folder_id: "", state: "", sort: "favorited" },
+  filters: { q: "", folder_id: "", remote_state: "", local_state: "", sort: "favorited" },
+  itemDetailSeq: 0,
   overview: null,
   recentRuns: [],
   runs: [],
@@ -61,9 +62,9 @@ const RUN_LABELS = {
   aborted: "已中止",
   running: "进行中",
 };
-const ITEM_STATE_LABELS = { active: "正常", missing: "疑似缺失", removed: "已移除" };
-const DOWNLOAD_LABELS = { pending: "等待中", running: "下载中", paused: "已暂停", done: "已完成", failed: "失败", canceled: "已取消", missing: "已丢失" };
-const LOCAL_LABELS = { none: "未下载", pending: "等待下载", running: "下载中", paused: "已暂停", done: "已下载", partial: "部分下载", failed: "下载失败" };
+const ITEM_STATE_LABELS = { active: "正常收藏", missing: "远端缺失待确认", removed: "远端已移除" };
+const DOWNLOAD_LABELS = { pending: "等待中", running: "下载中", paused: "已暂停", done: "已完成", failed: "失败", canceled: "已取消", missing: "本地文件丢失" };
+const LOCAL_LABELS = { none: "未下载", pending: "等待下载", running: "下载中", paused: "已暂停", done: "已备份", partial: "部分备份", failed: "下载失败", missing: "本地文件丢失" };
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -191,9 +192,11 @@ function itemStateTag(value) {
 function localBadge(local) {
   local = local || { state: "none" };
   if (local.state === "none" && !local.total) return `<span class="status-tag">未下载</span>`;
-  const variants = { pending: "warn", running: "accent", paused: "warn", done: "ok", partial: "warn", failed: "danger" };
-  const detail = local.total > 1 ? ` ${local.done}/${local.total}` : "";
-  return `<span class="status-tag ${variants[local.state] || ""}">${esc(LOCAL_LABELS[local.state] || "未下载")}${detail}</span>`;
+  const variants = { pending: "warn", running: "accent", paused: "warn", done: "ok", partial: "warn", failed: "danger", missing: "danger" };
+  const detail = local.total > 1 ? ` ${formatCount(local.done)}/${formatCount(local.total)}` : "";
+  const missing = local.missing > 0 && local.state !== "missing"
+    ? `<span class="status-tag danger">本地文件丢失 ${formatCount(local.missing)}</span>` : "";
+  return `<span class="status-tag ${variants[local.state] || ""}">${esc(LOCAL_LABELS[local.state] || "未下载")}${detail}</span>${missing}`;
 }
 
 function downloadTag(value) {
@@ -918,10 +921,13 @@ function refreshCurrentView() {
 function resetLibraryFilters() {
   state.sourceDeletionResult = null;
   state.selectedSource = 0;
-  state.filters = { q: "", folder_id: "", state: "", sort: "favorited" };
+  state.filters = { q: "", folder_id: "", remote_state: "", local_state: "", sort: "favorited" };
+  state.itemsSeq++;
+  state.itemDetailSeq++;
   state.items.page = 1;
   if ($("#search-input")) $("#search-input").value = "";
-  if ($("#state-filter")) $("#state-filter").value = "";
+  if ($("#remote-state-filter")) $("#remote-state-filter").value = "";
+  if ($("#local-state-filter")) $("#local-state-filter").value = "";
   if ($("#sort-select")) $("#sort-select").value = "favorited";
 }
 
@@ -1038,7 +1044,8 @@ function renderLastRun() {
     ["扫描", run.items_seen],
     ["新增", run.items_added],
     ["更新", run.items_updated],
-    ["缺失", (run.items_missing || 0) + (run.items_removed || 0)],
+    ["远端缺失待确认", run.items_missing],
+    ["远端已移除", run.items_removed],
   ];
   el.innerHTML = `
     <div class="section-head">
@@ -1531,7 +1538,7 @@ function renderLibraryHeader() {
   if (title) title.textContent = folder ? folder.title : "全部视频";
   if (count) {
     const base = folder ? Number(folder.item_count) || 0 : Number(summary.items) || 0;
-    const filtering = !!(state.filters.q || state.filters.state);
+    const filtering = !!(state.filters.q || state.filters.remote_state || state.filters.local_state);
     if (filtering && !state.itemsLoading) {
       count.textContent = `匹配 ${formatCount(state.items.total)} / 共 ${formatCount(base)} 条`;
     } else if (folder) {
@@ -1554,7 +1561,8 @@ function renderLibraryHeader() {
 
 function syncFilters() {
   state.filters.q = ($("#search-input")?.value || "").trim();
-  state.filters.state = $("#state-filter")?.value || "";
+  state.filters.remote_state = $("#remote-state-filter")?.value || "";
+  state.filters.local_state = $("#local-state-filter")?.value || "";
   state.filters.sort = $("#sort-select")?.value || "favorited";
   state.filters.folder_id = state.selectedSource ? String(state.selectedSource) : "";
 }
@@ -1577,7 +1585,8 @@ async function loadItems() {
   const params = new URLSearchParams({
     q: state.filters.q,
     folder_id: state.filters.folder_id,
-    state: state.filters.state,
+    remote_state: state.filters.remote_state,
+    local_state: state.filters.local_state,
     sort: state.filters.sort,
     page: String(state.items.page || 1),
     page_size: String(state.items.page_size || 48),
@@ -1635,7 +1644,7 @@ function renderItems() {
   }
   const items = state.items.items || [];
   if (!items.length) {
-    const filtered = !!(state.filters.q || state.filters.state || state.selectedSource);
+    const filtered = !!(state.filters.q || state.filters.remote_state || state.filters.local_state || state.selectedSource);
     el.innerHTML = `
       <div class="items-empty">
         ${icon(filtered ? "magnifying-glass" : "file-video")}
@@ -1675,7 +1684,7 @@ function itemCard(item) {
         </p>
         <div class="item-badges">
           ${localBadge(item.local)}
-          ${itemStateTag(item.state)}
+          ${itemStateTag(item.remote_state ?? item.state)}
         </div>
       </div>
     </article>`;
@@ -1740,12 +1749,18 @@ function renderPager() {
 }
 
 async function openItem(id) {
+  const accountID = state.me?.id;
+  const folderID = state.selectedSource;
+  const folder = selectedSource();
+  const seq = ++state.itemDetailSeq;
+  const isCurrent = () => seq === state.itemDetailSeq && state.me?.id === accountID && state.selectedSource === folderID;
   try {
-    const d = await api(`/api/items/${id}`);
+    const d = await api(`/api/items/${id}${folderID ? `?folder_id=${encodeURIComponent(folderID)}` : ""}`);
+    if (!isCurrent()) return;
     const it = d.item;
     if (!it) throw new Error("视频不存在");
     const site = currentSite();
-    const folderNames = (it.folders || []).map((f) => f.title).join(" · ");
+    const memberships = (it.folders || []).map((f) => `<li><span class="membership-title">${esc(f.title)}</span><span class="status-tag ${f.state === "removed" ? "danger" : f.state === "missing" ? "warn" : "plain"}">${esc(ITEM_STATE_LABELS[f.state] || f.state || "正常收藏")}</span></li>`).join("");
     const canDownload = !!(site && site.download);
     const local = it.local || { state: "none" };
     const blocked = ["done", "running", "pending"].includes(local.state);
@@ -1764,8 +1779,10 @@ async function openItem(id) {
         ${it.duration ? `<span>· ${esc(formatDuration(it.duration))}</span>` : ""}
         ${it.published_at ? `<span>· 发布于 ${esc(formatTime(it.published_at))}</span>` : ""}
         ${localBadge(local)}
+        ${itemStateTag(it.remote_state ?? it.state)}
       </div>
-      ${folderNames ? `<p class="modal-meta">${folderNames.split(" · ").map((name) => `<span class="status-tag plain">${esc(name)}</span>`).join("")}</p>` : ""}
+      <p class="item-source-context">当前来源：${esc(folder ? folder.title : "全部视频")}</p>
+      ${memberships ? `<div class="item-memberships"><h3>收藏夹中的远端状态</h3><ul>${memberships}</ul></div>` : ""}
       ${it.summary ? `<p style="margin-top:16px;color:var(--muted);font-size:14px;line-height:20px;text-wrap:pretty;">${esc(it.summary)}</p>` : ""}
       ${it.local && it.local.file_path ? `<p class="modal-meta"><span class="file-path">${esc(it.local.file_path)}</span></p>` : ""}
       ${qualityField}
@@ -1788,7 +1805,7 @@ async function openItem(id) {
       },
     });
   } catch (err) {
-    handleError(err);
+    if (isCurrent()) handleError(err);
   }
 }
 
@@ -2061,7 +2078,7 @@ function renderRunsTable() {
             <td>${run.trigger === "scheduled" ? "定时" : "手动"}</td>
             <td>${runTag(run.state)}</td>
             <td>${formatCount(run.folders_done)}/${formatCount(run.folders_total)}</td>
-            <td><div class="run-changes"><span>新增 <b>${formatCount(run.items_added)}</b></span><span>更新 <b>${formatCount(run.items_updated)}</b></span><span>缺失 <b>${formatCount(run.items_missing)}</b></span></div></td>
+            <td><div class="run-changes"><span>新增 <b>${formatCount(run.items_added)}</b></span><span>更新 <b>${formatCount(run.items_updated)}</b></span><span>远端缺失待确认 <b>${formatCount(run.items_missing)}</b></span><span>远端已移除 <b>${formatCount(run.items_removed)}</b></span></div></td>
             <td class="wrap">${run.error_message ? esc(run.error_message) : "—"}</td>
           </tr>`).join("")}
       </tbody>
@@ -3214,10 +3231,12 @@ function bind() {
       loadItems();
     }
   });
-  $("#state-filter").onchange = () => {
-    state.items.page = 1;
-    loadItems();
-  };
+  ["#remote-state-filter", "#local-state-filter"].forEach((selector) => {
+    $(selector).onchange = () => {
+      state.items.page = 1;
+      loadItems();
+    };
+  });
   $("#sort-select").onchange = () => {
     state.items.page = 1;
     loadItems();
@@ -3279,9 +3298,10 @@ function bindActionButtons(root) {
       if (action === "open-library") switchView("library");
       if (action === "retry-items") loadItems();
       if (action === "clear-filters") {
-        state.filters = { q: "", folder_id: state.selectedSource ? String(state.selectedSource) : "", state: "", sort: "favorited" };
+        state.filters = { q: "", folder_id: state.selectedSource ? String(state.selectedSource) : "", remote_state: "", local_state: "", sort: "favorited" };
         $("#search-input").value = "";
-        $("#state-filter").value = "";
+        $("#remote-state-filter").value = "";
+        $("#local-state-filter").value = "";
         $("#sort-select").value = "favorited";
         state.items.page = 1;
         loadItems();
