@@ -10,6 +10,4 @@ source=thirdparty
 platform=x86
 desktop_uidir=ui
 desktop_applaunchname=magpiesync.main
-service_port=8787
 ctl_stop=true
-checkport=true

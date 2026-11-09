@@ -69,6 +69,8 @@ git push origin v0.10.3
 | 参数 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `-listen` | `MAGPIESYNC_LISTEN` | `127.0.0.1:8787` | Web UI 和 API 监听地址 |
+| `-unix-socket` | `MAGPIESYNC_UNIX_SOCKET` | 空 | 可选的 HTTP Unix Socket；设置后覆盖 TCP 监听 |
+| `-base-path` | `MAGPIESYNC_BASE_PATH` | 空 | 反向代理使用的 URL 前缀，例如 `/app/magpiesync` |
 | `-data-dir` | `MAGPIESYNC_DATA_DIR` | `./data` | 数据库和密钥目录 |
 | `-rate` | `MAGPIESYNC_RATE` | `1.5` | 每个站点客户端的最大请求速率（次/秒） |
 | `-schedule` | `MAGPIESYNC_SCHEDULE` | 空 | 首次初始化同步计划的 cron 表达式，例如 `0 4 * * *` |

@@ -137,7 +137,23 @@ func (s *Server) Handler() http.Handler {
 		panic(err)
 	}
 	mux.Handle("GET /", http.FileServer(http.FS(sub)))
-	return s.requireLocalAuth(mux)
+	handler := s.requireLocalAuth(mux)
+	if s.cfg.BasePath != "" {
+		prefix := s.cfg.BasePath
+		prefixedHandler := http.StripPrefix(prefix, handler)
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != prefix && !strings.HasPrefix(r.URL.Path, prefix+"/") {
+				http.NotFound(w, r)
+				return
+			}
+			if r.URL.Path == prefix {
+				http.Redirect(w, r, prefix+"/", http.StatusMovedPermanently)
+				return
+			}
+			prefixedHandler.ServeHTTP(w, r)
+		})
+	}
+	return handler
 }
 
 func (s *Server) requireAccount(w http.ResponseWriter, r *http.Request) (*store.Account, bool) {

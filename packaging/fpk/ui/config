@@ -4,9 +4,10 @@
       "title": "MagpieSync",
       "icon": "images/icon_{0}.png",
       "type": "iframe",
-      "protocol": "http",
-      "port": "8787",
-      "url": "/",
+      "protocol": "",
+      "gatewayPrefix": "/app/magpiesync",
+      "gatewaySocket": "magpiesync.sock",
+      "url": "/app/magpiesync/",
       "allUsers": true
     }
   }

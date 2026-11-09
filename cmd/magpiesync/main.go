@@ -40,7 +40,7 @@ func run() error {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	if host, _, err := net.SplitHostPort(cfg.Listen); err == nil {
+	if host, _, err := net.SplitHostPort(cfg.Listen); cfg.UnixSocket == "" && err == nil {
 		if host != "127.0.0.1" && host != "localhost" && host != "::1" {
 			slog.Warn("HTTP API is reachable from the network. The local password protects the UI, but still bind to 127.0.0.1 unless you trust the network.", "listen", cfg.Listen)
 		}
@@ -190,11 +190,15 @@ func run() error {
 	api := httpapi.New(cfg, st, v, engine, hub)
 	api.SetDownloadManager(dl)
 	srv := &http.Server{
-		Addr:              cfg.Listen,
 		Handler:           api.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+	listener, err := listen(cfg)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	defer listener.Close()
 
 	schedule, err := scheduler.Load(context.Background(), st, cfg.Schedule)
 	if err != nil {
@@ -213,8 +217,12 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("magpiesync listening", "addr", cfg.Listen, "data_dir", cfg.DataDir, "version", version.Version)
-		errCh <- srv.ListenAndServe()
+		address := cfg.Listen
+		if cfg.UnixSocket != "" {
+			address = cfg.UnixSocket
+		}
+		slog.Info("magpiesync listening", "addr", address, "data_dir", cfg.DataDir, "version", version.Version)
+		errCh <- srv.Serve(listener)
 	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -234,6 +242,22 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func listen(cfg config.Config) (net.Listener, error) {
+	if cfg.UnixSocket == "" {
+		return net.Listen("tcp", cfg.Listen)
+	}
+	listener, err := net.Listen("unix", cfg.UnixSocket)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(cfg.UnixSocket, 0o666); err != nil {
+		listener.Close()
+		os.Remove(cfg.UnixSocket)
+		return nil, fmt.Errorf("set Unix socket permissions: %w", err)
+	}
+	return listener, nil
 }
 
 type siteResolver struct {

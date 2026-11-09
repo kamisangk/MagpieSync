@@ -9,10 +9,10 @@
   <meta property="og:title" content="MagpieSync">
   <meta property="og:description" content="把视频收藏留在自己的硬盘里。">
   <title>MagpieSync</title>
-  <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="apple-touch-icon" href="/brand-logo.png">
-  <link rel="preload" href="/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="./favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="./brand-logo.png">
+  <link rel="preload" href="./fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <a class="skip-link" href="#main-scroll">跳到主要内容</a>
@@ -20,7 +20,7 @@
   <section id="auth-page" class="auth-page">
     <header class="auth-top">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true"><img src="/brand-logo.png" alt=""></span>
+        <span class="brand-mark" aria-hidden="true"><img src="./brand-logo.png" alt=""></span>
         <span class="brand-copy"><strong>MagpieSync</strong><small>私人视频档案</small></span>
       </div>
       <p class="auth-local"><span class="status-dot"></span>本地服务 · 127.0.0.1</p>
@@ -47,18 +47,18 @@
     <aside id="nav" class="rail">
       <div class="rail-head">
         <button class="brand brand-button" data-view="dashboard" type="button" aria-label="回到总览">
-          <span class="brand-mark" aria-hidden="true"><img src="/brand-logo.png" alt=""></span>
+          <span class="brand-mark" aria-hidden="true"><img src="./brand-logo.png" alt=""></span>
           <span class="brand-copy"><strong>MagpieSync</strong><small>私人视频档案</small></span>
         </button>
       </div>
       <nav class="rail-nav" aria-label="主导航">
         <p class="rail-label">工作台</p>
-        <button class="nav-item" data-view="dashboard" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#squares-four"></use></svg><span class="nav-text">总览</span></button>
-        <button class="nav-item" data-view="library" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#books"></use></svg><span class="nav-text">资料库</span><span id="download-nav-count" class="nav-count" hidden></span></button>
-        <button class="nav-item" data-view="downloads" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#download-simple"></use></svg><span class="nav-text">下载</span></button>
-        <button class="nav-item" data-view="runs" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#clock-counter-clockwise"></use></svg><span class="nav-text">同步记录</span></button>
+        <button class="nav-item" data-view="dashboard" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#squares-four"></use></svg><span class="nav-text">总览</span></button>
+        <button class="nav-item" data-view="library" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#books"></use></svg><span class="nav-text">资料库</span><span id="download-nav-count" class="nav-count" hidden></span></button>
+        <button class="nav-item" data-view="downloads" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#download-simple"></use></svg><span class="nav-text">下载</span></button>
+        <button class="nav-item" data-view="runs" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#clock-counter-clockwise"></use></svg><span class="nav-text">同步记录</span></button>
         <p class="rail-label">系统</p>
-        <button class="nav-item" data-view="settings" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#sliders-horizontal"></use></svg><span class="nav-text">设置</span></button>
+        <button class="nav-item" data-view="settings" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#sliders-horizontal"></use></svg><span class="nav-text">设置</span></button>
       </nav>
       <div class="rail-foot">
         <button id="logout-btn" class="rail-logout" type="button">退出本地会话</button>
@@ -69,7 +69,7 @@
     <div class="workspace">
       <header class="topbar">
         <div class="topbar-left">
-          <button id="menu-btn" class="icon-btn menu-btn" type="button" aria-label="打开导航" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg></button>
+          <button id="menu-btn" class="icon-btn menu-btn" type="button" aria-label="打开导航" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="./icons.svg#list"></use></svg></button>
           <strong id="page-title" class="page-title">总览</strong>
         </div>
         <div class="topbar-right">
@@ -93,7 +93,7 @@
             </div>
             <div class="page-actions">
               <button id="dashboard-open-library" class="btn ghost" type="button">打开资料库</button>
-              <button id="sync-all" class="btn primary" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#arrows-clockwise"></use></svg>同步全部</button>
+              <button id="sync-all" class="btn primary" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrows-clockwise"></use></svg>同步全部</button>
             </div>
           </header>
 
@@ -110,7 +110,7 @@
               </div>
               <div id="stats" class="ledger-list"></div>
               <div class="ledger-foot">
-                <button class="text-link" id="ledger-open-library" type="button">查看全部视频<svg class="icon" aria-hidden="true"><use href="/icons.svg#arrow-right"></use></svg></button>
+                <button class="text-link" id="ledger-open-library" type="button">查看全部视频<svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-right"></use></svg></button>
               </div>
             </section>
             <section id="last-run-panel" class="last-run" aria-labelledby="last-run-title"></section>
@@ -126,7 +126,7 @@
             <section class="panel-flat" aria-labelledby="recent-runs-title">
               <div class="section-head">
                 <h2 id="recent-runs-title">最近同步</h2>
-                <button class="text-link" data-view="runs" type="button">全部记录<svg class="icon" aria-hidden="true"><use href="/icons.svg#arrow-right"></use></svg></button>
+                <button class="text-link" data-view="runs" type="button">全部记录<svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-right"></use></svg></button>
               </div>
               <div id="recent-runs" class="runs-compact"></div>
             </section>
@@ -141,7 +141,7 @@
             </div>
             <div class="page-actions">
               <button id="library-download" class="btn ghost" type="button" hidden>下载未备份</button>
-              <button id="library-sync" class="btn primary" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#arrows-clockwise"></use></svg>同步此账户</button>
+              <button id="library-sync" class="btn primary" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrows-clockwise"></use></svg>同步此账户</button>
             </div>
           </header>
 
@@ -154,7 +154,7 @@
             <aside class="source-panel">
               <div class="source-panel-head">
                 <h2>来源</h2>
-                <button id="source-add" class="icon-btn" type="button" aria-label="添加来源" title="添加来源" hidden><svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></button>
+              <button id="source-add" class="icon-btn" type="button" aria-label="添加来源" title="添加来源" hidden><svg class="icon" aria-hidden="true"><use href="./icons.svg#plus"></use></svg></button>
               </div>
               <label class="mobile-source-picker">
                 <span>当前来源</span>
@@ -171,7 +171,7 @@
                 </div>
                 <div class="library-filters">
                   <label class="search-box">
-                    <svg class="icon" aria-hidden="true"><use href="/icons.svg#magnifying-glass"></use></svg>
+                    <svg class="icon" aria-hidden="true"><use href="./icons.svg#magnifying-glass"></use></svg>
                     <input id="search-input" type="search" placeholder="搜索标题、作者、简介" aria-label="搜索视频">
                   </label>
                   <select id="state-filter" aria-label="按状态筛选">
@@ -296,8 +296,8 @@
                     <h3>数据导出</h3>
                   </div>
                   <div class="export-row">
-                    <a class="btn ghost" href="/api/export?format=json">导出全部 JSON</a>
-                    <a class="btn ghost" href="/api/export?format=csv">导出全部 CSV</a>
+                    <a class="btn ghost" href="./api/export?format=json">导出全部 JSON</a>
+                    <a class="btn ghost" href="./api/export?format=csv">导出全部 CSV</a>
                   </div>
                 </div>
               </section>
@@ -353,13 +353,13 @@
           <p id="modal-kicker" class="eyebrow"></p>
           <h2 id="modal-title"></h2>
         </div>
-        <button id="modal-close" class="icon-btn" type="button" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/icons.svg#x"></use></svg></button>
+        <button id="modal-close" class="icon-btn" type="button" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="./icons.svg#x"></use></svg></button>
       </header>
       <div id="modal-body" class="modal-body"></div>
     </div>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <script src="/app.js" defer></script>
+  <script src="./app.js" defer></script>
 </body>
 </html>

@@ -5,6 +5,8 @@ pid_file="${TRIM_PKGVAR}/magpiesync.pid"
 log_file="${TRIM_PKGVAR}/magpiesync.log"
 data_dir="${TRIM_PKGVAR}/data"
 app_bin="${TRIM_APPDEST}/bin/magpiesync"
+socket_path="${TRIM_APPDEST}/magpiesync.sock"
+temp_log=${TRIM_TEMP_LOGFILE:-/dev/stderr}
 
 status_app() {
   if [ -f "$pid_file" ]; then
@@ -19,9 +21,14 @@ case "${1:-}" in
   start)
     status_app && exit 0
     mkdir -p "$data_dir"
+    if [ -L "$socket_path" ] || { [ -e "$socket_path" ] && [ ! -S "$socket_path" ]; }; then
+      echo "Refusing to replace non-socket path: $socket_path" > "$temp_log"
+      exit 1
+    fi
+    if [ -S "$socket_path" ]; then rm -f "$socket_path"; fi
     export PATH="${TRIM_APPDEST}/bin/ffmpeg:${TRIM_APPDEST}/bin:/usr/local/bin:/usr/bin:/bin"
     cd "$TRIM_PKGVAR"
-    nohup "$app_bin" -listen "${MAGPIESYNC_LISTEN:-0.0.0.0:${TRIM_SERVICE_PORT:-8787}}" -data-dir "$data_dir" >>"$log_file" 2>&1 &
+    nohup "$app_bin" -unix-socket "$socket_path" -base-path /app/magpiesync -data-dir "$data_dir" >>"$log_file" 2>&1 &
     pid=$!
     echo "$pid" > "$pid_file"
     sleep 1
@@ -42,6 +49,7 @@ case "${1:-}" in
       kill -KILL "$pid" 2>/dev/null || true
     fi
     rm -f "$pid_file"
+    if [ -S "$socket_path" ]; then rm -f "$socket_path"; fi
     ;;
   status)
     status_app && exit 0

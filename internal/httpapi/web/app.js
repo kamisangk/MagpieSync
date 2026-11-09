@@ -64,13 +64,18 @@ const LOCAL_LABELS = { none: "未下载", pending: "等待下载", running: "下
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const applicationBasePath = new URL(".", window.location.href).pathname.replace(/\/$/, "");
+
+function applicationURL(path) {
+  return path.startsWith("/") ? `${applicationBasePath}${path}` : path;
+}
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
 }
 
 function icon(name, cls = "icon") {
-  return `<svg class="${cls}" aria-hidden="true"><use href="/icons.svg#${name}"></use></svg>`;
+  return `<svg class="${cls}" aria-hidden="true"><use href="${applicationURL("/icons.svg")}#${name}"></use></svg>`;
 }
 
 function formatCount(v) {
@@ -157,7 +162,7 @@ function siteInitial(name) {
 
 function siteMark(site, extra = "") {
   if (site && site.logo) {
-    return `<span class="site-mark ${extra}"><img src="${esc(site.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>`;
+    return `<span class="site-mark ${extra}"><img src="${esc(applicationURL(site.logo))}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>`;
   }
   return `<span class="site-mark ${extra}">${esc(siteInitial(site && site.name))}</span>`;
 }
@@ -485,7 +490,7 @@ async function api(path, options = {}) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(opts.body);
   }
-  const res = await fetch(path, opts);
+  const res = await fetch(applicationURL(path), opts);
   const text = await res.text();
   let data = null;
   if (text) {
@@ -2038,7 +2043,7 @@ function renderProgress() {
 
 function connectSSE() {
   if (state.es) state.es.close();
-  state.es = new EventSource("/api/events");
+  state.es = new EventSource(applicationURL("/api/events"));
   state.es.onmessage = (event) => {
     let payload;
     try {
