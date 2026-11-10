@@ -39,6 +39,15 @@ func cleanupFolderFiles(ctx context.Context, snapshot store.FolderCleanupSnapsho
 
 func cleanupFolderFilesUsing(ctx context.Context, snapshot store.FolderCleanupSnapshot, remove func(string, string) error) store.FolderDeletionResult {
 	result := store.FolderDeletionResult{}
+	references := snapshot.Tasks
+	if snapshot.DeletingAccountID != 0 {
+		references = nil
+		for _, task := range snapshot.Tasks {
+			if task.AccountID != snapshot.DeletingAccountID || task.Protected || !task.Candidate || task.State != "done" {
+				references = append(references, task)
+			}
+		}
+	}
 	reasons := map[string]bool{}
 	reason := func(value string) {
 		if !reasons[value] {
@@ -82,7 +91,7 @@ func cleanupFolderFilesUsing(ctx context.Context, snapshot store.FolderCleanupSn
 			reason("路径不安全或不在当前媒体目录内，文件已保留")
 			continue
 		}
-		if cleanupPathShared(path, task.ID, snapshot.Tasks, false) {
+		if cleanupPathShared(path, task.ID, references, false) {
 			protected[key] = true
 			reason("其他下载记录共用的文件已保留")
 			continue
@@ -95,7 +104,11 @@ func cleanupFolderFilesUsing(ctx context.Context, snapshot store.FolderCleanupSn
 		}
 		if err = remove(snapshot.MediaDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			result.FailedFiles++
-			reason("部分文件删除失败，原下载记录已保留")
+			if snapshot.DeletingAccountID != 0 {
+				reason("部分文件删除失败，文件仍保留在硬盘中")
+			} else {
+				reason("部分文件删除失败，原下载记录已保留")
+			}
 			continue
 		}
 		if err == nil {
@@ -104,7 +117,7 @@ func cleanupFolderFilesUsing(ctx context.Context, snapshot store.FolderCleanupSn
 		result.MissingTaskIDs = append(result.MissingTaskIDs, task.ID)
 		for _, companion := range companions {
 			safe, checkErr := safeCleanupPath(snapshot.MediaDir, companion)
-			if checkErr != nil || cleanupPathShared(safe, task.ID, snapshot.Tasks, true) {
+			if checkErr != nil || cleanupPathShared(safe, task.ID, references, true) {
 				result.SkippedFiles++
 				reason("共用或归属不明确的附属文件已保留")
 				continue

@@ -2,11 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
+	"magpiesync/internal/download"
 	"magpiesync/internal/netproxy"
 	"magpiesync/internal/store"
 )
@@ -143,6 +146,26 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid account id")
 		return
 	}
+	var body struct {
+		DeleteLocalFiles *bool `json:"delete_local_files"`
+	}
+	deleteFiles := false
+	if r.Body != nil {
+		dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+		err := dec.Decode(&body)
+		if err != nil && !errors.Is(err, io.EOF) || err == nil && body.DeleteLocalFiles == nil {
+			writeError(w, http.StatusBadRequest, "需要有效的 delete_local_files 布尔选项")
+			return
+		}
+		if err == nil {
+			var extra any
+			if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+				writeError(w, http.StatusBadRequest, "无效的删除选项")
+				return
+			}
+			deleteFiles = *body.DeleteLocalFiles
+		}
+	}
 	account, err := s.store.GetAccountByID(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "account not found")
@@ -156,12 +179,22 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 	if current, currentErr := s.currentAccount(r.Context()); currentErr == nil && current != nil && current.ID == id {
 		wasCurrent = true
 	}
-	if err := s.store.DeleteAccount(r.Context(), id); err != nil {
+	var result store.AccountDeletionResult
+	if s.download != nil {
+		result, err = s.download.DeleteAccount(r.Context(), id, deleteFiles)
+	} else {
+		result, err = download.DeleteAccount(r.Context(), s.store, id, deleteFiles)
+	}
+	if err != nil {
+		if errors.Is(err, store.ErrAccountDeletionConflict) {
+			writeError(w, http.StatusConflict, "该账户正在同步或下载，请等待任务结束后再删除")
+			return
+		}
 		if errors.Is(err, store.ErrNoAccount) {
 			writeError(w, http.StatusNotFound, "account not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "删除账户未能完成，请刷新并检查账户与下载文件状态")
 		return
 	}
 	if wasCurrent {
@@ -180,7 +213,11 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": account.ID})
+	writeJSON(w, http.StatusOK, struct {
+		OK      bool  `json:"ok"`
+		Deleted int64 `json:"deleted"`
+		store.AccountDeletionResult
+	}{true, account.ID, result})
 }
 
 func (s *Server) handleAccountProxy(w http.ResponseWriter, r *http.Request) {

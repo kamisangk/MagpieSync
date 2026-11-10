@@ -46,6 +46,7 @@ const state = {
   modalCancel: null,
   modalBusy: false,
   sourceDeletion: null,
+  accountDeletion: null,
   sourceDeletionResult: null,
   sourceAddKind: "",
   collections: [],
@@ -2623,6 +2624,7 @@ async function saveSettings(event) {
 function openModal(options) {
   state.modalBusy = false;
   state.sourceDeletion = null;
+  state.accountDeletion = null;
   $("#modal-close").disabled = false;
   state.modalReturnFocus = document.activeElement;
   state.modalCancel = typeof options.onCancel === "function" ? options.onCancel : null;
@@ -2655,6 +2657,7 @@ function closeModal() {
   state.modalCancel = null;
   state.modalBusy = false;
   state.sourceDeletion = null;
+  state.accountDeletion = null;
   modal.hidden = true;
   document.body.classList.remove("modal-open");
   $("#app-shell").inert = false;
@@ -2811,25 +2814,96 @@ async function openAccountManager() {
 }
 
 function deleteAccountPrompt(id, name, after = openAccountManager) {
-  confirmAction({
-    title: "删除本地账户",
-    message: `要删除 <strong>${esc(name)}</strong> 的本地数据吗？视频源、同步记录和下载任务都会移除。`,
-    note: "站点账户不会被删除，已经下载到本地硬盘的媒体文件也不会自动清理。",
-    confirmLabel: "删除本地数据",
-    danger: true,
+  const request = { id, after, pending: false };
+  openModal({
+    title: "删除账户与记录",
+    body: `
+      <p class="confirm-copy">要从 MagpieSync 中删除 <strong>${esc(name)}</strong> 吗？该账户的视频来源、视频条目、同步记录和下载任务都会删除。</p>
+      <label class="source-delete-option"><input id="account-delete-files" type="checkbox" aria-describedby="account-delete-sharing"><span>同时删除本地已下载文件</span></label>
+      <p id="account-delete-sharing" class="source-delete-note">默认保留媒体文件。勾选后，仅删除此账户独用的文件；其他账户同步或下载过的视频会保留，并继续处理其余视频。此操作不会注销视频网站上的账号。</p>
+      <p id="account-delete-error" class="field-error" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" id="account-delete-cancel">取消</button>
+        <button class="btn danger" type="button" id="account-delete-confirm">删除账户与记录</button>
+      </div>`,
+    focus: "#account-delete-cancel",
     onCancel: after,
-    onConfirm: async () => {
-      try {
-        await api(`/api/accounts/${id}`, { method: "DELETE" });
-        toast("已删除本地账户");
-        resetLibraryFilters();
-        await refreshCurrentAccount();
-        await loadSites();
-        if (after) after();
-        refreshCurrentView();
-      } catch (err) {
-        handleError(err);
-      }
+    onMount: () => {
+      state.accountDeletion = request;
+      $("#account-delete-cancel").onclick = cancelModal;
+      $("#account-delete-confirm").onclick = () => deleteAccount(request);
+    },
+  });
+}
+
+async function deleteAccount(request) {
+  if (request.pending || state.accountDeletion !== request) return;
+  request.pending = true;
+  const deleteFiles = $("#account-delete-files").checked;
+  const controls = [$("#account-delete-confirm"), $("#account-delete-cancel"), $("#account-delete-files"), $("#modal-close")];
+  controls.forEach((control) => { control.disabled = true; });
+  state.modalBusy = true;
+  $("#account-delete-confirm").textContent = "正在删除…";
+  $("#account-delete-error").hidden = true;
+  let result;
+  let deleted = false;
+  try {
+    result = await api(`/api/accounts/${request.id}`, { method: "DELETE", body: { delete_local_files: deleteFiles } });
+    deleted = true;
+  } catch (err) {
+    if (state.accountDeletion !== request) return;
+    if (err.status === 401) {
+      closeModal();
+      handleError(err);
+      return;
+    }
+    $("#account-delete-error").textContent = err.message || "删除失败，请稍后重试。";
+    $("#account-delete-error").hidden = false;
+    return;
+  } finally {
+    request.pending = deleted;
+    if (!deleted && state.accountDeletion === request) {
+      controls.forEach((control) => { control.disabled = false; });
+      state.modalBusy = false;
+      $("#account-delete-confirm").textContent = "删除账户与记录";
+    }
+  }
+  if (state.accountDeletion !== request) return;
+  resetLibraryFilters();
+  try {
+    await refreshCurrentAccount();
+    if (state.accountDeletion !== request) return;
+    await loadSites();
+    if (state.accountDeletion !== request) return;
+    refreshCurrentView();
+  } catch (err) {
+    if (state.accountDeletion !== request) return;
+    toast("账户已删除，但页面数据刷新失败，请刷新页面。", true);
+  }
+  if (state.accountDeletion !== request) return;
+  showAccountDeletionResult(result, deleteFiles, request.after);
+}
+
+function showAccountDeletionResult(result, deleteFiles, after) {
+  const parts = ["已删除账户与记录"];
+  if (deleteFiles) {
+    parts.push(`删除 ${formatCount(result.deleted_files || 0)} 个文件`);
+    if (result.protected_videos) parts.push(`保留 ${formatCount(result.protected_videos)} 个共用视频`);
+    if (result.skipped_files) parts.push(`跳过 ${formatCount(result.skipped_files)} 个文件`);
+    if (result.failed_files) parts.push(`${formatCount(result.failed_files)} 个文件删除失败`);
+    if (result.partial_cleanup && !result.skipped_files && !result.failed_files) parts.push("部分文件已保留");
+  } else {
+    parts.push("已下载的媒体文件已保留");
+  }
+  const reasons = Array.isArray(result.reasons) ? [...new Set(result.reasons.filter((reason) => typeof reason === "string" && reason.trim()))] : [];
+  openModal({
+    title: "账户删除结果",
+    body: `<p role="status">${esc(parts.join("，"))}。</p>${reasons.length ? `<p class="source-delete-note">${esc(reasons.join("；"))}</p>` : ""}
+      <div class="modal-actions"><button class="btn" type="button" id="account-delete-done">确定</button></div>`,
+    focus: "#account-delete-done",
+    onCancel: after,
+    onMount: () => {
+      $("#account-delete-done").onclick = () => { closeModal(); if (after) after(); };
     },
   });
 }

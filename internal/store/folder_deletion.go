@@ -21,9 +21,10 @@ type FolderCleanupTask struct {
 }
 
 type FolderCleanupSnapshot struct {
-	Tasks           []FolderCleanupTask
-	RunningDownload bool
-	MediaDir        string
+	Tasks             []FolderCleanupTask
+	RunningDownload   bool
+	MediaDir          string
+	DeletingAccountID int64
 }
 
 type FolderDeletionResult struct {
