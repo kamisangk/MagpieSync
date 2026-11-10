@@ -2522,9 +2522,11 @@ function markSettingsDirty() {
 }
 
 function updateSettingsState() {
+  const bar = $("#settings-save-bar");
   const btn = $("#settings-save");
   const label = $("#settings-state");
   if (!btn || !label) return;
+  if (bar) bar.hidden = !state.settingsDirty && !state.settingsSaving;
   btn.disabled = !state.settingsDirty || state.settingsSaving || !scheduleValid;
   renderScheduleStatus();
   if (state.settingsSaving) {

@@ -16,6 +16,7 @@ assert.match(html, /id="library-filter-toggle"[^>]*aria-controls="library-filter
 assert.ok(html.indexOf('id="search-input"') < html.indexOf('id="library-filter-fields"'));
 assert.match(html, /id="download-pager"/);
 assert.equal((html.match(/id="settings-state"/g) || []).length, 1);
+assert.match(html, /id="settings-save-bar"[^>]*hidden/);
 assert.match(css, /.library-filters.open/);
 assert.ok(css.indexOf('.library-tools-main .search-box { flex: 1 1 220px; }') >= 0);
 assert.match(css, /.item-card { display: grid; grid-template-columns: 104px/);
@@ -57,6 +58,63 @@ const rowEnd = app.indexOf("function bindDownloadEvents(", rowStart);
 vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd) + app.slice(start, rowEnd) + "globalThis.ui = { state, loadDownloadsQuiet, loadDownloads, downloadFilterDefs, filteredDownloads, loadAllDownloadTasks };", context);
 
 (async () => {
+  const settingsElements = new Map();
+  const settingsElement = (id) => {
+    if (!settingsElements.has(id)) settingsElements.set(id, { hidden: false, disabled: false, value: "", textContent: "", style: {}, focus() {}, classList: { remove() {}, toggle() {} } });
+    return settingsElements.get(id);
+  };
+  const settingsErrors = [];
+  const settingsContext = vm.createContext({
+    state: { settingsDirty: false, settingsSaving: false, accounts: [{ id: 1, proxy: "" }] },
+    $: settingsElement,
+    renderScheduleStatus() {}, renderSettingsAccounts() {}, toast() {},
+    readProxyChanges: () => [{ id: 1, proxy: "http://proxy" }],
+    scheduleExpression: () => "", readSiteQualities: () => ({}), readMissingCheck: () => ({}),
+    readSiteArchive: () => ({}), readSiteNaming: () => ({}),
+    handleError: (error) => settingsErrors.push(error),
+    api: async () => ({ settings: {}, ffmpeg_available: true }),
+  });
+  const settingsStart = app.indexOf("function markSettingsDirty()");
+  const settingsEnd = app.indexOf("/* Modals */", settingsStart);
+  vm.runInContext("let scheduleValid = true;\n" + app.slice(settingsStart, settingsEnd) + "globalThis.settingsUI = { state, markSettingsDirty, updateSettingsState, saveSettings, setScheduleValid(value) { scheduleValid = value; } };", settingsContext);
+  const settingsUI = settingsContext.settingsUI;
+  const saveBar = settingsElement("#settings-save-bar");
+  const saveButton = settingsElement("#settings-save");
+  settingsUI.updateSettingsState();
+  assert.equal(saveBar.hidden, true, "clean settings hide the save bar");
+  settingsUI.markSettingsDirty();
+  assert.equal(saveBar.hidden, false);
+  assert.equal(saveButton.disabled, false);
+  settingsUI.setScheduleValid(false);
+  settingsUI.updateSettingsState();
+  assert.equal(saveBar.hidden, false, "invalid drafts remain visible");
+  assert.equal(saveButton.disabled, true);
+  settingsUI.setScheduleValid(true);
+  for (const [id, value] of Object.entries({ "#set-media-dir": "/media", "#set-codecs": "avc", "#set-concurrency": "2", "#set-chunk-concurrency": "4", "#set-chunk-threshold": "0" })) settingsElement(id).value = value;
+  let finishSave;
+  settingsContext.api = () => new Promise((resolve) => { finishSave = resolve; });
+  const saving = settingsUI.saveSettings();
+  assert.equal(saveBar.hidden, false);
+  assert.equal(saveButton.disabled, true);
+  assert.equal(settingsElement("#settings-state").textContent, "正在保存");
+  settingsContext.api = async () => ({});
+  finishSave({ settings: {}, ffmpeg_available: true });
+  await saving;
+  assert.equal(saveBar.hidden, true, "successful settings and proxy writes hide the bar");
+  assert.equal(settingsUI.state.settingsDirty, false);
+  settingsUI.markSettingsDirty();
+  const proxyError = new Error("proxy save failed");
+  settingsContext.api = async (url) => {
+    if (url.includes("/proxy")) throw proxyError;
+    return { settings: {}, ffmpeg_available: true };
+  };
+  await settingsUI.saveSettings();
+  assert.equal(settingsErrors[0], proxyError);
+  assert.equal(settingsUI.state.settingsDirty, true);
+  assert.equal(saveBar.hidden, false, "partial save failure keeps the bar for retry");
+  assert.equal(saveButton.disabled, false);
+  assert.equal(settingsElement("#set-media-dir").value, "/media");
+
   const { ui } = context;
   const calls = [];
   context.api = async (url) => {
@@ -102,5 +160,5 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   resolveQuiet({ counts: { marker: 2 } });
   await quiet;
   assert.equal(ui.state.downloadStats.marker, 1);
-  console.log("PASS: paginated download query, server total, all seven state counts, bulk retry paging and stale response guards");
+  console.log("PASS: settings save visibility/lifecycle, paginated download query, server total, all seven state counts, bulk retry paging and stale response guards");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
