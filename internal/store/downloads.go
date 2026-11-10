@@ -264,6 +264,55 @@ func (s *Store) ListDownloadTasks(ctx context.Context, accountID int64, state st
 	return out, rows.Err()
 }
 
+// DownloadFilter selects a bounded, newest-first slice from the current
+// account's download history. States is a union: matching any state qualifies.
+type DownloadFilter struct {
+	States   []string
+	Page     int
+	PageSize int
+}
+
+// QueryDownloadTasks returns a filtered page and the total number of matching
+// historical rows. An empty States slice means all states.
+func (s *Store) QueryDownloadTasks(ctx context.Context, accountID int64, filter DownloadFilter) ([]DownloadTask, int, error) {
+	if filter.Page < 1 || filter.PageSize < 1 || filter.PageSize > 100 {
+		return nil, 0, errors.New("invalid download page")
+	}
+	maxInt := int(^uint(0) >> 1)
+	if filter.Page-1 > maxInt/filter.PageSize {
+		return nil, 0, errors.New("download page offset overflows")
+	}
+	where := `account_id = ?`
+	args := []any{accountID}
+	if len(filter.States) > 0 {
+		marks := make([]string, len(filter.States))
+		for i, state := range filter.States {
+			marks[i] = "?"
+			args = append(args, state)
+		}
+		where += ` AND state IN (` + strings.Join(marks, ",") + `)`
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM download_tasks WHERE `+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	queryArgs := append(append([]any(nil), args...), filter.PageSize, (filter.Page-1)*filter.PageSize)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+downloadColumns+` FROM download_tasks WHERE `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]DownloadTask, 0, filter.PageSize)
+	for rows.Next() {
+		d, err := scanDownload(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, *d)
+	}
+	return out, total, rows.Err()
+}
+
 func (s *Store) GetDownloadTask(ctx context.Context, id int64) (*DownloadTask, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+downloadColumns+` FROM download_tasks WHERE id = ?`, id)
 	return scanDownload(row)

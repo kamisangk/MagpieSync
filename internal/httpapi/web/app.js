@@ -20,6 +20,13 @@ const state = {
   runs: [],
   downloadFilter: "all",
   downloads: [],
+  downloadPage: 1,
+  downloadPageSize: 25,
+  downloadTotal: 0,
+  downloadsSeq: 0,
+  downloadQuietSeq: 0,
+  downloadsLoading: false,
+  settingsSite: "",
   downloadStats: null,
   downloadInfo: null,
   downloadTimer: null,
@@ -363,7 +370,7 @@ function renderSettingsAccounts(settings, options) {
         </div>`
       : "";
     return `
-      <section class="site-card" id="settings-site-${esc(site.id)}">
+      <section class="site-card" id="settings-site-${esc(site.id)}" data-site-panel="${esc(site.id)}">
         <header class="site-card-head">
           ${siteMark(site)}
           <div class="site-copy">
@@ -378,14 +385,32 @@ function renderSettingsAccounts(settings, options) {
         </footer>
       </section>`;
   }).join("");
+  wrap.insertAdjacentHTML("afterbegin", `<label class="settings-site-picker"><span>当前站点</span><select id="settings-site-select" aria-label="当前站点">${sites.map((site) => `<option value="${esc(site.id)}">${esc(site.name)}</option>`).join("")}</select></label>`);
   bindSettingsAccounts();
+  renderSitePanelSelection();
+  $("#settings-site-select").onchange = (event) => {
+    state.settingsSite = event.target.value;
+    renderSitePanelSelection();
+  };
+}
+
+function renderSitePanelSelection() {
+  const cards = $$("#set-site-accounts [data-site-panel]");
+  if (!cards.length) return;
+  if (!cards.some((card) => card.dataset.sitePanel === state.settingsSite)) state.settingsSite = cards[0].dataset.sitePanel;
+  const select = $("#settings-site-select");
+  if (select) select.value = state.settingsSite;
+  cards.forEach((card) => { card.hidden = card.dataset.sitePanel !== state.settingsSite; });
 }
 
 function bindSettingsAccounts() {
   const wrap = $("#set-site-accounts");
   if (!wrap) return;
   wrap.querySelectorAll("[data-add-account]").forEach((btn) => {
-    btn.onclick = () => openConnectModal(btn.dataset.addAccount, null, false);
+    btn.onclick = () => {
+      if (state.settingsDirty) return toast("请先保存设置，再管理账户。", true);
+      openConnectModal(btn.dataset.addAccount, null, false);
+    };
   });
   wrap.querySelectorAll("[data-proxy-test]").forEach((btn) => {
     btn.onclick = () => {
@@ -397,12 +422,16 @@ function bindSettingsAccounts() {
   });
   wrap.querySelectorAll("[data-relogin-account]").forEach((btn) => {
     btn.onclick = () => {
+      if (state.settingsDirty) return toast("请先保存设置，再管理账户。", true);
       const account = (state.accounts || []).find((a) => a.id === Number(btn.dataset.reloginAccount));
       if (account) openConnectModal(account.site, account, false);
     };
   });
   wrap.querySelectorAll("[data-delete-account]").forEach((btn) => {
-    btn.onclick = () => deleteAccountPrompt(Number(btn.dataset.deleteAccount), btn.dataset.accountName, () => switchView("settings", { force: true }));
+    btn.onclick = () => {
+      if (state.settingsDirty) return toast("请先保存设置，再管理账户。", true);
+      deleteAccountPrompt(Number(btn.dataset.deleteAccount), btn.dataset.accountName, () => switchView("settings", { force: true }));
+    };
   });
 }
 
@@ -564,6 +593,11 @@ function setAuthError(message) {
 
 function showAuth(mode = "login", message = "") {
   state.authMode = mode;
+  state.downloadsSeq++;
+  state.downloadQuietSeq++;
+  state.downloadsLoading = false;
+  state.downloads = [];
+  state.downloadTotal = 0;
   state.me = null;
   state.sites = [];
   state.overview = null;
@@ -899,6 +933,10 @@ async function activateAccount(id) {
     return;
   }
   try {
+    state.downloadsSeq++;
+    state.downloadQuietSeq++;
+    state.downloadsLoading = false;
+    state.downloadPage = 1;
     await api(`/api/accounts/${id}/activate`, { method: "POST" });
     closeAccountMenu();
     resetLibraryFilters();
@@ -970,13 +1008,27 @@ async function loadDownloadsQuiet() {
     return;
   }
   try {
+    const accountID = state.me.id;
+    const seq = ++state.downloadQuietSeq;
     const d = await api("/api/downloads?limit=1");
+    if (seq !== state.downloadQuietSeq || state.me?.id !== accountID) return;
     state.downloadStats = d.counts || {};
     state.downloadInfo = d;
     updateNavCount();
   } catch {
     // dashboard should still render when the queue is unavailable
   }
+}
+
+async function loadAllDownloadTasks(filter) {
+  const first = await api(`/api/downloads?filter=${encodeURIComponent(filter)}&page=1&page_size=100`);
+  const tasks = first.tasks || [];
+  const pages = Math.ceil((Number(first.total) || tasks.length) / 100);
+  for (let page = 2; page <= pages; page++) {
+    const next = await api(`/api/downloads?filter=${encodeURIComponent(filter)}&page=${page}&page_size=100`);
+    tasks.push(...(next.tasks || []));
+  }
+  return tasks;
 }
 
 function renderDashboard() {
@@ -1557,6 +1609,53 @@ function renderLibraryHeader() {
   if (download) {
     download.hidden = !(folder && site.download && Number(folder.item_count) > 0 && (!folder.local_total || folder.local_done < folder.local_total));
   }
+  renderLibraryFilterState();
+}
+
+function renderLibraryFilterState() {
+  const toggle = $("#library-filter-toggle");
+  const fields = $("#library-filter-fields");
+  if (!toggle || !fields) return;
+  if (typeof document.createElement !== "function" || typeof fields.after !== "function") return;
+  const remoteLabels = { active: "正常收藏", missing: "远端缺失待确认", removed: "远端已移除" };
+  const localLabels = { none: "未下载", pending: "等待下载", running: "下载中", paused: "已暂停", done: "已备份", partial: "部分备份", failed: "下载失败", missing: "本地文件丢失" };
+  const selected = [remoteLabels[state.filters.remote_state], localLabels[state.filters.local_state]].filter(Boolean);
+  if (state.filters.sort && state.filters.sort !== "favorited") selected.push($("#sort-select")?.selectedOptions?.[0]?.textContent || "已排序");
+  const filterCount = selected.length;
+  const query = ($("#search-input")?.value || state.filters.q || "").trim();
+  if (query) selected.push("搜索：" + query);
+  toggle.innerHTML = "筛选" + (filterCount ? "<span class=\"filter-count\">" + filterCount + "</span>" : "");
+  const expanded = fields.classList?.contains ? fields.classList.contains("open") : !!toggle.getAttribute?.("aria-expanded");
+  toggle.setAttribute("aria-expanded", String(expanded));
+  let summary = $("#library-filter-summary");
+  if (!summary) {
+    summary = document.createElement("div");
+    summary.id = "library-filter-summary";
+    summary.className = "library-filter-summary";
+    $(".library-tools").after(summary);
+  }
+  summary.hidden = selected.length === 0;
+  summary.replaceChildren();
+  if (selected.length) {
+    const text = document.createElement("span");
+    text.textContent = selected.join(" · ");
+    summary.append(text);
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "text-link";
+    clear.textContent = "清除筛选";
+    clear.dataset.clearLibraryFilters = "";
+    summary.append(clear);
+    clear.onclick = () => {
+      state.filters = { ...state.filters, q: "", remote_state: "", local_state: "", sort: "favorited" };
+      $("#search-input").value = "";
+      $("#remote-state-filter").value = "";
+      $("#local-state-filter").value = "";
+      $("#sort-select").value = "favorited";
+      state.items.page = 1;
+      loadItems();
+    };
+  }
 }
 
 function syncFilters() {
@@ -1811,25 +1910,41 @@ async function openItem(id) {
 
 /* Downloads */
 
+const DOWNLOAD_FILTERS = { all: "all", active: "active", done: "done", paused: "paused", canceled: "canceled", failed: "failed", missing: "missing" };
+
 async function loadDownloads() {
   if (!state.me) {
     state.downloads = [];
     state.downloadStats = {};
     state.downloadInfo = null;
+    state.downloadTotal = 0;
     renderDownloads();
     return;
   }
   const accountID = state.me.id;
+  const seq = ++state.downloadsSeq;
+  state.downloadsLoading = true;
+  const params = new URLSearchParams({
+    filter: DOWNLOAD_FILTERS[state.downloadFilter] || "all",
+    page: String(state.downloadPage),
+    page_size: String(state.downloadPageSize),
+  });
   try {
-    const d = await api("/api/downloads?limit=100");
-    if (state.me?.id !== accountID) return;
+    const d = await api(`/api/downloads?${params}`);
+    if (seq !== state.downloadsSeq || state.me?.id !== accountID) return;
     state.downloads = d.tasks || [];
     state.downloadStats = d.counts || {};
     state.downloadInfo = d;
+    state.downloadTotal = Number(d.total) || 0;
+    state.downloadPage = Number(d.page) || 1;
+    state.downloadPageSize = Number(d.page_size) || state.downloadPageSize;
   } catch (err) {
-    if (state.me?.id !== accountID) return;
+    if (seq !== state.downloadsSeq || state.me?.id !== accountID) return;
     handleError(err);
+  } finally {
+    if (seq === state.downloadsSeq && state.me?.id === accountID) state.downloadsLoading = false;
   }
+  if (seq !== state.downloadsSeq || state.me?.id !== accountID) return;
   renderDownloads();
   updateNavCount();
 }
@@ -1853,19 +1968,17 @@ function updateNavCount() {
 function downloadFilterDefs() {
   const c = state.downloadStats || {};
   return [
-    { id: "all", label: "全部", count: ["pending", "running", "done", "failed", "paused", "canceled"].reduce((n, key) => n + Number(c[key] || 0), 0) },
+    { id: "all", label: "全部", count: ["pending", "running", "done", "paused", "canceled", "failed", "missing"].reduce((n, key) => n + Number(c[key] || 0), 0) },
     { id: "active", label: "进行中", count: Number(c.pending || 0) + Number(c.running || 0) },
     { id: "done", label: "已完成", count: Number(c.done || 0) },
-    { id: "paused", label: "已暂停", count: Number(c.paused || 0) + Number(c.canceled || 0) },
+    { id: "paused", label: "已暂停", count: Number(c.paused || 0) },
+    { id: "canceled", label: "已取消", count: Number(c.canceled || 0) },
     { id: "failed", label: "失败", count: Number(c.failed || 0) },
+    { id: "missing", label: "文件丢失", count: Number(c.missing || 0) },
   ];
 }
 
 function filteredDownloads() {
-  if (state.downloadFilter === "active") return state.downloads.filter((t) => t.state === "pending" || t.state === "running");
-  if (state.downloadFilter === "paused") return state.downloads.filter((t) => t.state === "paused" || t.state === "canceled");
-  if (state.downloadFilter === "failed") return state.downloads.filter((t) => t.state === "failed");
-  if (state.downloadFilter === "done") return state.downloads.filter((t) => t.state === "done");
   return state.downloads;
 }
 
@@ -1875,12 +1988,15 @@ function renderDownloads() {
     <button class="filter-tab ${state.downloadFilter === f.id ? "active" : ""}" type="button" role="tab" aria-selected="${state.downloadFilter === f.id}" data-download-filter="${f.id}">${f.label}<span>${formatCount(f.count)}</span></button>`).join("");
   $("#download-filters").querySelectorAll("[data-download-filter]").forEach((btn) => {
     btn.onclick = () => {
+      if (state.downloadFilter === btn.dataset.downloadFilter) return;
       state.downloadFilter = btn.dataset.downloadFilter;
-      renderDownloads();
+      state.downloadPage = 1;
+      loadDownloads();
     };
   });
   const failed = Number(c.failed || 0);
   $("#retry-failed").hidden = failed <= 0;
+  $("#retry-failed").disabled = failed <= 0;
   const list = $("#downloads-list");
   if (!state.me) {
     list.innerHTML = `
@@ -1891,7 +2007,7 @@ function renderDownloads() {
         <button class="btn ghost" type="button" data-action="manage">连接站点</button>
       </div>`;
     bindActionButtons(list);
-  } else if (!state.downloads.length) {
+  } else if (!state.downloads.length && !state.downloadsLoading) {
     list.innerHTML = `
       <div class="items-empty">
         ${icon("download-simple")}
@@ -1904,13 +2020,28 @@ function renderDownloads() {
     const tasks = filteredDownloads();
     list.innerHTML = tasks.length
       ? tasks.map(downloadRow).join("")
-      : `<div class="empty">当前筛选下没有任务。</div>`;
+      : state.downloadsLoading ? `<div class="empty">正在读取下载记录…</div>` : `<div class="empty">当前筛选下没有任务。</div>`;
     bindDownloadEvents(list);
   }
+  renderDownloadPager();
   const info = state.downloadInfo || {};
   $("#download-media-dir").textContent = state.me
     ? `媒体目录：${info.media_dir || "—"} · FFmpeg：${info.ffmpeg_available ? "可用" : "未找到"}`
     : "";
+}
+
+function renderDownloadPager() {
+  const pager = $("#download-pager");
+  if (!pager) return;
+  const pages = Math.max(1, Math.ceil(state.downloadTotal / state.downloadPageSize));
+  pager.hidden = state.downloadTotal <= state.downloadPageSize;
+  pager.innerHTML = `<span>共 ${formatCount(state.downloadTotal)} 条 · 第 ${formatCount(state.downloadPage)} / ${formatCount(pages)} 页</span><div class="pager-actions"><button class="btn ghost small" type="button" data-download-page="prev" ${state.downloadPage <= 1 ? "disabled" : ""}>上一页</button><button class="btn ghost small" type="button" data-download-page="next" ${state.downloadPage >= pages ? "disabled" : ""}>下一页</button></div>`;
+  pager.querySelectorAll("[data-download-page]").forEach((button) => {
+    button.onclick = () => {
+      state.downloadPage += button.dataset.downloadPage === "next" ? 1 : -1;
+      loadDownloads();
+    };
+  });
 }
 
 function downloadRow(task) {
@@ -1985,7 +2116,15 @@ async function sendDownloadAction(id, action) {
 }
 
 async function retryFailed() {
-  const failed = state.downloads.filter((t) => t.state === "failed");
+  const accountID = state.me?.id;
+  let failed;
+  try {
+    failed = await loadAllDownloadTasks("failed");
+    if (!accountID || state.me?.id !== accountID) return;
+  } catch (err) {
+    handleError(err);
+    return;
+  }
   if (!failed.length) return;
   let ok = 0;
   for (const task of failed) {
@@ -2065,7 +2204,18 @@ function renderRunsTable() {
     wrap.innerHTML = `<div class="runs-empty">当前筛选下没有记录。</div>`;
     return;
   }
+  const mobileRows = runs.map((run) => `
+    <details class="run-mobile">
+      <summary><time>${esc(formatRelativeTime(run.started_at))}</time><span class="run-account">${esc(accountLabel(run.account_id))}</span>${runTag(run.state)}</summary>
+      <div class="run-mobile-detail">
+        <div><span>触发</span><b>${run.trigger === "scheduled" ? "定时" : "手动"}</b></div>
+        <div><span>来源</span><b>${formatCount(run.folders_done)} / ${formatCount(run.folders_total)}</b></div>
+        <div class="run-changes"><span>新增 <b>${formatCount(run.items_added)}</b></span><span>更新 <b>${formatCount(run.items_updated)}</b></span><span>远端缺失 <b>${formatCount(run.items_missing)}</b></span><span>远端已移除 <b>${formatCount(run.items_removed)}</b></span></div>
+        ${run.error_message ? `<p class="run-mobile-error">${esc(run.error_message)}</p>` : ""}
+      </div>
+    </details>`).join("");
   wrap.innerHTML = `
+    <div class="run-mobile-list">${mobileRows}</div>
     <table>
       <thead><tr>
         <th>开始</th><th>账户</th><th>触发</th><th>结果</th><th>来源</th><th>变更</th><th>错误</th>
@@ -3182,6 +3332,11 @@ function bind() {
   $("#library-download").onclick = () => {
     if (state.selectedSource) downloadSource(state.selectedSource);
   };
+  $("#library-filter-toggle").onclick = () => {
+    const fields = $("#library-filter-fields");
+    fields.classList.toggle("open");
+    renderLibraryFilterState();
+  };
   $("#mobile-source-select").onchange = () => selectSource(Number($("#mobile-source-select").value));
   $("#downloads-refresh").onclick = loadDownloads;
   $("#retry-failed").onclick = retryFailed;
@@ -3241,6 +3396,7 @@ function bind() {
     state.items.page = 1;
     loadItems();
   };
+  $("#search-input").addEventListener("input", renderLibraryFilterState);
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".account-wrap")) closeAccountMenu();

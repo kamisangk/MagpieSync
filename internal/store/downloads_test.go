@@ -6,6 +6,46 @@ import (
 	"testing"
 )
 
+func TestQueryDownloadTasksFiltersAndPagesWithinAccount(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "query-downloads.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	account, err := st.UpsertAccount(ctx, "synthetic-video", "query", "tester", "", []byte("cred"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := st.UpsertAccount(ctx, "synthetic-video", "foreign", "foreign", "", []byte("cred"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a", "b", "c"} {
+		if _, _, err := st.CreateDownloadTasks(ctx, account, 80, []DownloadTaskInput{{RemoteID: id, PartID: 1}}, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := st.CreateDownloadTasks(ctx, foreign, 80, []DownloadTaskInput{{RemoteID: "foreign", PartID: 1}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	all, total, err := st.QueryDownloadTasks(ctx, account, DownloadFilter{Page: 1, PageSize: 2})
+	if err != nil || total != 3 || len(all) != 2 || all[0].RemoteID != "c" || all[1].RemoteID != "b" {
+		t.Fatalf("first page=%+v total=%d err=%v", all, total, err)
+	}
+	second, total, err := st.QueryDownloadTasks(ctx, account, DownloadFilter{Page: 2, PageSize: 2})
+	if err != nil || total != 3 || len(second) != 1 || second[0].RemoteID != "a" {
+		t.Fatalf("second page=%+v total=%d err=%v", second, total, err)
+	}
+	filtered, total, err := st.QueryDownloadTasks(ctx, account, DownloadFilter{States: []string{"pending", "running"}, Page: 1, PageSize: 10})
+	if err != nil || total != 3 || len(filtered) != 3 {
+		t.Fatalf("filtered=%+v total=%d err=%v", filtered, total, err)
+	}
+	if _, total, err := st.QueryDownloadTasks(ctx, foreign, DownloadFilter{Page: 1, PageSize: 10}); err != nil || total != 1 {
+		t.Fatalf("foreign total=%d err=%v", total, err)
+	}
+}
+
 func TestPauseResumeCancelDownloadTask(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

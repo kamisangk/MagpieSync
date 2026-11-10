@@ -294,14 +294,55 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not logged in")
 		return
 	}
-	state := r.URL.Query().Get("state")
+	query := r.URL.Query()
+	pageMode := query.Has("filter") || query.Has("page") || query.Has("page_size")
+	state := query.Get("state")
 	limit := 100
-	if v := r.URL.Query().Get("limit"); v != "" {
+	if v := query.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			limit = n
 		}
 	}
-	tasks, err := s.store.ListDownloadTasks(r.Context(), acct.ID, state, limit)
+	var filter store.DownloadFilter
+	if pageMode {
+		if state != "" || query.Has("limit") {
+			writeError(w, http.StatusBadRequest, "filter/page cannot be combined with state/limit")
+			return
+		}
+		if query.Has("page") && query.Get("page") == "" || query.Has("page_size") && query.Get("page_size") == "" {
+			writeError(w, http.StatusBadRequest, "invalid download pagination")
+			return
+		}
+		page, pageErr := optionalPositiveInt(query.Get("page"), 1)
+		pageSize, sizeErr := optionalPositiveInt(query.Get("page_size"), 25)
+		if pageErr != nil || sizeErr != nil || pageSize > 100 {
+			writeError(w, http.StatusBadRequest, "invalid download pagination")
+			return
+		}
+		maxInt := int(^uint(0) >> 1)
+		if page-1 > maxInt/pageSize {
+			writeError(w, http.StatusBadRequest, "invalid download pagination")
+			return
+		}
+		filter.Page, filter.PageSize = page, pageSize
+		switch q := query.Get("filter"); q {
+		case "", "all":
+		case "active":
+			filter.States = []string{"pending", "running"}
+		case "done", "paused", "canceled", "failed", "missing":
+			filter.States = []string{q}
+		default:
+			writeError(w, http.StatusBadRequest, "invalid download filter")
+			return
+		}
+	}
+	var tasks []store.DownloadTask
+	var total int
+	if pageMode {
+		tasks, total, err = s.store.QueryDownloadTasks(r.Context(), acct.ID, filter)
+	} else {
+		tasks, err = s.store.ListDownloadTasks(r.Context(), acct.ID, state, limit)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -339,7 +380,21 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Re-read after the reconcile so the DTO reflects the updated state.
-	tasks, err = s.store.ListDownloadTasks(r.Context(), acct.ID, state, limit)
+	if pageMode {
+		tasks, total, err = s.store.QueryDownloadTasks(r.Context(), acct.ID, filter)
+		if err == nil {
+			lastPage := 1
+			if total > 0 {
+				lastPage = (total + filter.PageSize - 1) / filter.PageSize
+			}
+			if filter.Page > lastPage {
+				filter.Page = lastPage
+				tasks, total, err = s.store.QueryDownloadTasks(r.Context(), acct.ID, filter)
+			}
+		}
+	} else {
+		tasks, err = s.store.ListDownloadTasks(r.Context(), acct.ID, state, limit)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -348,14 +403,31 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 	for _, t := range tasks {
 		out = append(out, downloadTaskDTO(t))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"tasks":            out,
 		"counts":           counts,
 		"media_dir":        d.MediaDir,
 		"site_qualities":   d.SiteQualities,
 		"ffmpeg_available": ffmpegAvailable(d.FFmpegPath),
 		"running":          s.download != nil && s.download.Running(),
-	})
+	}
+	if pageMode {
+		response["total"] = total
+		response["page"] = filter.Page
+		response["page_size"] = filter.PageSize
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func optionalPositiveInt(raw string, fallback int) (int, error) {
+	if raw == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, errors.New("must be a positive integer")
+	}
+	return n, nil
 }
 
 func downloadTaskDTO(t store.DownloadTask) map[string]any {

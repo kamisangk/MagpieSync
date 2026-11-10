@@ -23,7 +23,6 @@
         <span class="brand-mark" aria-hidden="true"><img src="./brand-logo.png" alt=""></span>
         <span class="brand-copy"><strong>MagpieSync</strong><small>私人视频档案</small></span>
       </div>
-      <p class="auth-local"><span class="status-dot"></span>本地服务 · 127.0.0.1</p>
     </header>
 
     <div class="auth-main">
@@ -54,8 +53,8 @@
       <nav class="rail-nav" aria-label="主导航">
         <p class="rail-label">工作台</p>
         <button class="nav-item" data-view="dashboard" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#squares-four"></use></svg><span class="nav-text">总览</span></button>
-        <button class="nav-item" data-view="library" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#books"></use></svg><span class="nav-text">资料库</span><span id="download-nav-count" class="nav-count" hidden></span></button>
-        <button class="nav-item" data-view="downloads" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#download-simple"></use></svg><span class="nav-text">下载</span></button>
+        <button class="nav-item" data-view="library" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#books"></use></svg><span class="nav-text">资料库</span></button>
+        <button class="nav-item" data-view="downloads" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#download-simple"></use></svg><span class="nav-text">下载</span><span id="download-nav-count" class="nav-count" hidden></span></button>
         <button class="nav-item" data-view="runs" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#clock-counter-clockwise"></use></svg><span class="nav-text">同步记录</span></button>
         <p class="rail-label">系统</p>
         <button class="nav-item" data-view="settings" type="button"><svg class="icon" aria-hidden="true"><use href="./icons.svg#sliders-horizontal"></use></svg><span class="nav-text">设置</span></button>
@@ -169,11 +168,14 @@
                   <h2 id="library-title">全部视频</h2>
                   <span id="library-count" class="library-count"></span>
                 </div>
-                <div class="library-filters">
+                <div class="library-tools-main">
                   <label class="search-box">
                     <svg class="icon" aria-hidden="true"><use href="./icons.svg#magnifying-glass"></use></svg>
                     <input id="search-input" type="search" placeholder="搜索标题、作者、简介" aria-label="搜索视频">
                   </label>
+                <button id="library-filter-toggle" class="btn ghost small" type="button" aria-expanded="false" aria-controls="library-filter-fields">筛选</button>
+                </div>
+                <div id="library-filter-fields" class="library-filters">
                   <label class="library-filter-field">
                     <span>远端状态</span>
                     <select id="remote-state-filter">
@@ -232,6 +234,7 @@
           </div>
 
           <div id="downloads-list" class="download-list"></div>
+          <div id="download-pager" class="pager download-pager" hidden></div>
           <p id="download-media-dir" class="media-note"></p>
         </section>
 
@@ -261,10 +264,7 @@
             <div class="page-head-copy">
               <h1>设置</h1>
             </div>
-            <div class="page-actions settings-actions">
-              <span id="settings-state" class="save-state">所有修改已保存</span>
-              <button id="settings-save" class="btn primary" type="button" disabled>保存修改</button>
-            </div>
+            <div class="page-actions settings-actions"></div>
           </header>
 
           <div class="settings-layout">
@@ -363,6 +363,7 @@
               </section>
             </div>
           </div>
+          <div class="settings-save-bar" id="settings-save-bar"><span id="settings-state" class="save-state">所有修改已保存</span><button id="settings-save" class="btn primary" type="button" disabled>保存修改</button></div>
         </section>
       </main>
     </div>
