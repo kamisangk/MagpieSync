@@ -741,9 +741,8 @@ function switchView(view, options = {}) {
   }
 }
 
-/* Keep account context beside page level actions, including the task overview. */
+/* Keep account context beside actions on account-aware pages. */
 const ACCOUNT_ANCHORS = {
-  dashboard: { anchor: "#sync-all", after: false },
   library: { anchor: "#library-sync", after: true },
   downloads: { anchor: "#downloads-refresh", after: true },
   runs: { anchor: "#runs-refresh", after: true },
@@ -3318,7 +3317,6 @@ function bind() {
   });
 
   $("#sync-all").onclick = startSyncAll;
-  $("#dashboard-open-library").onclick = () => switchView("library");
   $("#ledger-open-library").onclick = () => switchView("library");
   $("#source-add").onclick = openAddSourceModal;
   $("#library-sync").onclick = () => {
