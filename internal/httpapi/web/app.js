@@ -2522,6 +2522,11 @@ function markSettingsDirty() {
   updateSettingsState();
 }
 
+function handleSettingsInput(event) {
+  if (event.target.id === "settings-site-select") return;
+  markSettingsDirty();
+}
+
 function updateSettingsState() {
   const bar = $("#settings-save-bar");
   const btn = $("#settings-save");
@@ -3438,11 +3443,8 @@ function bind() {
   $$(".settings-nav-item").forEach((btn) => {
     btn.onclick = () => showSettingsSection(btn.dataset.settingsSection);
   });
-  $("#view-settings").addEventListener("input", markSettingsDirty);
-  $("#view-settings").addEventListener("change", (event) => {
-    if (event.target.id === "settings-site-select") return;
-    markSettingsDirty();
-  });
+  $("#view-settings").addEventListener("input", handleSettingsInput);
+  $("#view-settings").addEventListener("change", handleSettingsInput);
 
   $("#sync-indicator").onclick = () => switchView("dashboard");
 

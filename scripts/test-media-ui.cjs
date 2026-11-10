@@ -26,6 +26,8 @@ assert.match(app, /if \(select\) select\.value = state\.settingsSite;/);
 assert.match(css, /\.settings-site-picker > span \{ flex: 0 0 auto; white-space: nowrap; \}/);
 assert.match(css, /\.settings-panel \{ padding-top: 0; animation: view-in/);
 assert.ok(app.includes('if (event.target.id === "settings-site-select") return;'));
+assert.ok(app.includes('$("#view-settings").addEventListener("input", handleSettingsInput);'));
+assert.ok(app.includes('function handleSettingsInput(event) {'));
 
 const elements = new Map();
 function el(selector) {
@@ -70,7 +72,7 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   const settingsContext = vm.createContext({
     state: { settingsDirty: false, settingsSaving: false, accounts: [{ id: 1, proxy: "" }] },
     $: settingsElement,
-    renderScheduleStatus() {}, renderSettingsAccounts() {}, toast() {},
+    renderScheduleStatus() {}, renderSettingsAccounts() {}, toast() {}, updateSettingsState() {},
     readProxyChanges: () => [{ id: 1, proxy: "http://proxy" }],
     scheduleExpression: () => "", readSiteQualities: () => ({}), readMissingCheck: () => ({}),
     readSiteArchive: () => ({}), readSiteNaming: () => ({}),
@@ -79,12 +81,19 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   });
   const settingsStart = app.indexOf("function markSettingsDirty()");
   const settingsEnd = app.indexOf("/* Modals */", settingsStart);
-  vm.runInContext("let scheduleValid = true;\n" + app.slice(settingsStart, settingsEnd) + "globalThis.settingsUI = { state, markSettingsDirty, updateSettingsState, saveSettings, setScheduleValid(value) { scheduleValid = value; } };", settingsContext);
+  vm.runInContext("let scheduleValid = true;\n" + app.slice(settingsStart, settingsEnd) + "globalThis.settingsUI = { state, markSettingsDirty, handleSettingsInput, updateSettingsState, saveSettings, setScheduleValid(value) { scheduleValid = value; } };", settingsContext);
   const settingsUI = settingsContext.settingsUI;
   const saveBar = settingsElement("#settings-save-bar");
   const saveButton = settingsElement("#settings-save");
   settingsUI.updateSettingsState();
   assert.equal(saveBar.hidden, true, "clean settings hide the save bar");
+  settingsUI.handleSettingsInput({ target: { id: "settings-site-select" } });
+  assert.equal(settingsUI.state.settingsDirty, false, "changing the visible site does not dirty settings");
+  assert.equal(saveBar.hidden, true, "changing the visible site does not show the save bar");
+  settingsUI.handleSettingsInput({ target: { id: "set-media-dir" } });
+  assert.equal(settingsUI.state.settingsDirty, true, "editing a setting still dirties settings");
+  settingsUI.state.settingsDirty = false;
+  settingsUI.updateSettingsState();
   settingsUI.markSettingsDirty();
   assert.equal(saveBar.hidden, false);
   assert.equal(saveButton.disabled, false);
