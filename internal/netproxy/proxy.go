@@ -25,7 +25,7 @@ func Normalize(raw string) (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("代理地址无效: %w", err)
+		return "", fmt.Errorf("代理地址无效")
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
 	switch u.Scheme {
@@ -35,7 +35,7 @@ func Normalize(raw string) (string, error) {
 			u.Host = net.JoinHostPort(u.Hostname(), "1080")
 		}
 	default:
-		return "", fmt.Errorf("不支持的代理协议 %q，请使用 http:// 或 socks5://", u.Scheme)
+		return "", fmt.Errorf("不支持的代理协议，请使用 http:// 或 socks5://")
 	}
 	if u.Hostname() == "" {
 		return "", fmt.Errorf("代理地址缺少主机名")

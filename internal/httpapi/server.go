@@ -23,7 +23,6 @@ import (
 
 	"magpiesync/internal/config"
 	"magpiesync/internal/download"
-	"magpiesync/internal/netproxy"
 	"magpiesync/internal/sites"
 	"magpiesync/internal/store"
 	syncpkg "magpiesync/internal/sync"
@@ -59,7 +58,6 @@ type qrSession struct {
 	session     sites.QRSession
 	siteID      string
 	url         string
-	proxy       string
 	accountID   int64
 	expectedUID string
 	expiresAt   time.Time
@@ -112,7 +110,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.handleLocalLogout)
 	mux.HandleFunc("GET /api/accounts", s.handleAccounts)
 	mux.HandleFunc("POST /api/accounts/{id}/activate", s.handleAccountActivate)
-	mux.HandleFunc("PUT /api/accounts/{id}/proxy", s.handleAccountProxy)
 	mux.HandleFunc("DELETE /api/accounts/{id}", s.handleAccountDelete)
 	mux.HandleFunc("POST /api/proxy/test", s.handleProxyTest)
 	mux.HandleFunc("GET /api/overview", s.handleOverview)
@@ -175,12 +172,12 @@ func (s *Server) requireAccount(w http.ResponseWriter, r *http.Request) (*store.
 	return a, true
 }
 
-func (s *Server) accountContext(_ context.Context, a *store.Account) (sites.AccountContext, error) {
+func (s *Server) accountContext(ctx context.Context, a *store.Account) (sites.AccountContext, error) {
 	plain, err := s.vault.Decrypt(a.Credential, credentialAAD(a.Site, a.RemoteUID))
 	if err != nil {
 		return sites.AccountContext{}, err
 	}
-	proxyURL, err := s.proxyForAccount(a)
+	proxyURL, err := s.proxyForSite(ctx, a.Site)
 	if err != nil {
 		return sites.AccountContext{}, err
 	}
@@ -229,6 +226,11 @@ func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if strings.TrimSpace(body.Proxy) != "" {
+		writeError(w, http.StatusBadRequest, "请在站点设置中配置平台代理")
+		return
+	}
+
 	siteID, err := s.resolveSiteID(r.Context(), body.Site)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -248,7 +250,7 @@ func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "该站点不支持二维码登录")
 		return
 	}
-	proxyURL, err := netproxy.Normalize(body.Proxy)
+	proxyURL, err := s.proxyForSite(r.Context(), siteID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -281,7 +283,6 @@ func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
 		session:   start.Session,
 		siteID:    siteID,
 		url:       start.URL,
-		proxy:     proxyURL,
 		expiresAt: start.ExpiresAt,
 	}
 	if account != nil {
@@ -357,7 +358,7 @@ func (s *Server) handleQRPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	site, _ := sites.Get(sess.siteID)
-	a, err := s.saveAccount(r.Context(), site, result, sess.proxy, sess.accountID)
+	a, err := s.saveAccount(r.Context(), site, result, sess.accountID)
 	if err != nil {
 		s.mu.Lock()
 		sess.session.Close()
@@ -388,6 +389,11 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if strings.TrimSpace(body.Proxy) != "" {
+		writeError(w, http.StatusBadRequest, "请在站点设置中配置平台代理")
+		return
+	}
+
 	siteID := strings.TrimSpace(body.Site)
 	if _, ok := sites.Get(siteID); !ok {
 		writeError(w, http.StatusBadRequest, "该站点未编译进当前版本")
@@ -408,7 +414,7 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "请输入账号和密码")
 		return
 	}
-	proxyURL, err := netproxy.Normalize(body.Proxy)
+	proxyURL, err := s.proxyForSite(r.Context(), siteID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -442,7 +448,7 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		accountID = account.ID
 	}
 	site, _ := sites.Get(siteID)
-	a, err := s.saveAccount(ctx, site, result, proxyURL, accountID)
+	a, err := s.saveAccount(ctx, site, result, accountID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -465,6 +471,11 @@ func (s *Server) handleCookieLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if strings.TrimSpace(body.Proxy) != "" {
+		writeError(w, http.StatusBadRequest, "请在站点设置中配置平台代理")
+		return
+	}
+
 	siteID, err := s.resolveSiteID(r.Context(), body.Site)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -480,7 +491,7 @@ func (s *Server) handleCookieLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "该站点未编译进当前版本")
 		return
 	}
-	proxyURL, err := netproxy.Normalize(body.Proxy)
+	proxyURL, err := s.proxyForSite(r.Context(), siteID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -516,7 +527,7 @@ func (s *Server) handleCookieLogin(w http.ResponseWriter, r *http.Request) {
 	if account != nil {
 		accountID = account.ID
 	}
-	a, err := s.saveAccount(r.Context(), site, result, proxyURL, accountID)
+	a, err := s.saveAccount(r.Context(), site, result, accountID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

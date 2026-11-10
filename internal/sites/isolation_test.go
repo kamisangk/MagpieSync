@@ -97,6 +97,7 @@ func TestSharedLayersAreSiteAgnostic(t *testing.T) {
 		"internal/media",
 		"internal/vault",
 		"internal/netproxy",
+		"internal/siteproxy",
 		"internal/config",
 		"internal/cookieutil",
 		"internal/version",

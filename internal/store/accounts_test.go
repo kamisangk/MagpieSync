@@ -7,7 +7,47 @@ import (
 	"testing"
 )
 
-func TestAccountsIncludeExpiredAndProxy(t *testing.T) {
+func TestOpenClearsLegacyAccountProxies(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.UpsertAccount(ctx, "synthetic-video", "legacy-user", "name", "", []byte("credential"), 100)
+	if err != nil {
+		st.Close()
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE accounts SET proxy_enc = ? WHERE id = ?`, []byte("legacy-proxy"), id); err != nil {
+		st.Close()
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		st, err = Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var remaining int
+		if err := st.db.QueryRow(`SELECT COUNT(*) FROM accounts WHERE proxy_enc IS NOT NULL`).Scan(&remaining); err != nil {
+			st.Close()
+			t.Fatal(err)
+		}
+		account, err := st.GetAccountByID(ctx, id)
+		if err != nil || remaining != 0 || string(account.Credential) != "credential" || account.Name != "name" {
+			st.Close()
+			t.Fatalf("legacy cleanup changed account or retained proxy: count=%d, account=%+v, error=%v", remaining, account, err)
+		}
+		if err := st.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAccountsIncludeExpired(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -15,11 +55,11 @@ func TestAccountsIncludeExpiredAndProxy(t *testing.T) {
 	}
 	defer st.Close()
 
-	first, err := st.UpsertAccountWithProxy(ctx, "synthetic-video", "1001", "alice", "", []byte("cred-a"), []byte("proxy-a"), 100)
+	first, err := st.UpsertAccount(ctx, "synthetic-video", "1001", "alice", "", []byte("cred-a"), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := st.UpsertAccountWithProxy(ctx, "synthetic-video", "1002", "bob", "", []byte("cred-b"), nil, 101)
+	second, err := st.UpsertAccount(ctx, "synthetic-video", "1002", "bob", "", []byte("cred-b"), 101)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,25 +78,14 @@ func TestAccountsIncludeExpiredAndProxy(t *testing.T) {
 	for i := range accounts {
 		seen[accounts[i].ID] = &accounts[i]
 	}
-	if got := seen[first]; got == nil || got.State != "needs_reauth" || string(got.ProxyEnc) != "proxy-a" {
+	if got := seen[first]; got == nil || got.State != "needs_reauth" {
 		t.Fatalf("expired account not preserved: %+v", got)
 	}
-	if got := seen[second]; got == nil || got.State != "active" || len(got.ProxyEnc) != 0 {
+	if got := seen[second]; got == nil || got.State != "active" {
 		t.Fatalf("second account unexpected: %+v", got)
 	}
 
-	if err := st.UpdateAccountProxy(ctx, second, []byte("proxy-b"), 103); err != nil {
-		t.Fatal(err)
-	}
-	updated, err := st.GetAccountByID(ctx, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(updated.ProxyEnc) != "proxy-b" {
-		t.Fatalf("proxy = %q, want proxy-b", updated.ProxyEnc)
-	}
-
-	if err := st.UpdateAccountLogin(ctx, first, "alice-renamed", "", []byte("cred-a2"), []byte("proxy-a2"), 104); err != nil {
+	if err := st.UpdateAccountLogin(ctx, first, "alice-renamed", "", []byte("cred-a2"), 104); err != nil {
 		t.Fatal(err)
 	}
 	relogged, err := st.GetAccountByID(ctx, first)
@@ -64,7 +93,7 @@ func TestAccountsIncludeExpiredAndProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if relogged.State != "active" || relogged.Name != "alice-renamed" ||
-		string(relogged.Credential) != "cred-a2" || string(relogged.ProxyEnc) != "proxy-a2" {
+		string(relogged.Credential) != "cred-a2" {
 		t.Fatalf("relogin did not update account: %+v", relogged)
 	}
 }

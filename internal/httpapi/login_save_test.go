@@ -29,7 +29,7 @@ func TestSaveAccountRejectsChangedIdentity(t *testing.T) {
 	}
 	_, err = s.saveAccount(context.Background(), sites.Site{ID: "synthetic", Name: "Synthetic"}, &sites.LoginResult{
 		UID: "new-id", Name: "new-name", Credential: []byte("new credential"),
-	}, "", id)
+	}, id)
 	if !errors.Is(err, errAccountMismatch) {
 		t.Fatalf("saveAccount error = %v, want account mismatch", err)
 	}

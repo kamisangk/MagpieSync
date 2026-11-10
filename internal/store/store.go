@@ -49,6 +49,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(`UPDATE accounts SET proxy_enc = NULL WHERE proxy_enc IS NOT NULL`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("clear legacy account proxies: %w", err)
+	}
 	return &Store{db: db}, nil
 }
 
@@ -76,7 +80,6 @@ type Account struct {
 	AvatarURL    string `json:"avatar_url"`
 	State        string `json:"state"`
 	Credential   []byte `json:"-"`
-	ProxyEnc     []byte `json:"-"`
 	CredentialAt int64  `json:"-"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
@@ -95,7 +98,7 @@ func (s *Store) GetAccountByID(ctx context.Context, id int64) (*Account, error) 
 // so the UI can offer re-login without hiding local data.
 func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, site, remote_uid, name, avatar_url, credential_enc, proxy_enc, credential_updated_at, state, created_at, updated_at
+		SELECT id, site, remote_uid, name, avatar_url, credential_enc, credential_updated_at, state, created_at, updated_at
 		FROM accounts
 		WHERE state IN ('active', 'needs_reauth') AND length(credential_enc) > 0
 		ORDER BY id DESC`)
@@ -107,7 +110,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	for rows.Next() {
 		var a Account
 		if err := rows.Scan(&a.ID, &a.Site, &a.RemoteUID, &a.Name, &a.AvatarURL,
-			&a.Credential, &a.ProxyEnc, &a.CredentialAt, &a.State, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			&a.Credential, &a.CredentialAt, &a.State, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -116,12 +119,12 @@ func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 }
 
 func (s *Store) getAccount(ctx context.Context, suffix string, args ...any) (*Account, error) {
-	q := `SELECT id, site, remote_uid, name, avatar_url, credential_enc, proxy_enc, credential_updated_at, state, created_at, updated_at
+	q := `SELECT id, site, remote_uid, name, avatar_url, credential_enc, credential_updated_at, state, created_at, updated_at
 	      FROM accounts WHERE 1=1 ` + suffix
 	a := &Account{}
 	err := s.db.QueryRowContext(ctx, q, args...).Scan(
 		&a.ID, &a.Site, &a.RemoteUID, &a.Name, &a.AvatarURL,
-		&a.Credential, &a.ProxyEnc, &a.CredentialAt, &a.State, &a.CreatedAt, &a.UpdatedAt,
+		&a.Credential, &a.CredentialAt, &a.State, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNoAccount
@@ -133,22 +136,17 @@ func (s *Store) getAccount(ctx context.Context, suffix string, args ...any) (*Ac
 }
 
 func (s *Store) UpsertAccount(ctx context.Context, site, uid, name, avatar string, cred []byte, now int64) (int64, error) {
-	return s.UpsertAccountWithProxy(ctx, site, uid, name, avatar, cred, nil, now)
-}
-
-func (s *Store) UpsertAccountWithProxy(ctx context.Context, site, uid, name, avatar string, cred, proxyEnc []byte, now int64) (int64, error) {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO accounts (site, remote_uid, name, avatar_url, credential_enc, proxy_enc, credential_updated_at, state, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+		INSERT INTO accounts (site, remote_uid, name, avatar_url, credential_enc, credential_updated_at, state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
 		ON CONFLICT(site, remote_uid) DO UPDATE SET
 			name = excluded.name,
 			avatar_url = excluded.avatar_url,
 			credential_enc = excluded.credential_enc,
-			proxy_enc = excluded.proxy_enc,
 			credential_updated_at = excluded.credential_updated_at,
 			state = 'active',
 			updated_at = excluded.updated_at`,
-		site, uid, name, avatar, cred, proxyEnc, now, now, now,
+		site, uid, name, avatar, cred, now, now, now,
 	)
 	if err != nil {
 		return 0, err
@@ -159,17 +157,12 @@ func (s *Store) UpsertAccountWithProxy(ctx context.Context, site, uid, name, ava
 }
 
 // UpdateAccountLogin refreshes an existing account after an explicit re-login.
-func (s *Store) UpdateAccountLogin(ctx context.Context, id int64, name, avatar string, cred, proxyEnc []byte, now int64) error {
+func (s *Store) UpdateAccountLogin(ctx context.Context, id int64, name, avatar string, cred []byte, now int64) error {
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE accounts SET name = ?, avatar_url = ?, credential_enc = ?, proxy_enc = ?,
+		UPDATE accounts SET name = ?, avatar_url = ?, credential_enc = ?,
 			credential_updated_at = ?, state = 'active', updated_at = ?
 		WHERE id = ?`,
-		name, avatar, cred, proxyEnc, now, now, id)
-	return err
-}
-
-func (s *Store) UpdateAccountProxy(ctx context.Context, id int64, proxyEnc []byte, now int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE accounts SET proxy_enc = ?, updated_at = ? WHERE id = ?`, proxyEnc, now, id)
+		name, avatar, cred, now, now, id)
 	return err
 }
 

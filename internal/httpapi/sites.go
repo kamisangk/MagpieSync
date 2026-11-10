@@ -23,13 +23,12 @@ func (s *Server) handleSiteAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 type siteAccountDTO struct {
-	ID       int64  `json:"id"`
-	UID      string `json:"uid"`
-	Name     string `json:"name"`
-	Avatar   string `json:"avatar_url,omitempty"`
-	State    string `json:"state"`
-	Current  bool   `json:"current"`
-	HasProxy bool   `json:"has_proxy"`
+	ID      int64  `json:"id"`
+	UID     string `json:"uid"`
+	Name    string `json:"name"`
+	Avatar  string `json:"avatar_url,omitempty"`
+	State   string `json:"state"`
+	Current bool   `json:"current"`
 }
 
 type siteDTO struct {
@@ -64,10 +63,9 @@ func (s *Server) handleSites(w http.ResponseWriter, r *http.Request) {
 	bySite := make(map[string][]siteAccountDTO, len(accounts))
 	for i := range accounts {
 		a := accounts[i]
-		proxy, _ := s.proxyForAccount(&a)
 		bySite[a.Site] = append(bySite[a.Site], siteAccountDTO{
 			ID: a.ID, UID: a.RemoteUID, Name: a.Name, Avatar: a.AvatarURL,
-			State: a.State, Current: a.ID == currentID, HasProxy: proxy != "",
+			State: a.State, Current: a.ID == currentID,
 		})
 	}
 	list := sites.List()

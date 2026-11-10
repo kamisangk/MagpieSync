@@ -93,8 +93,15 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		proxies, err := s.siteProxySettings(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "无法读取站点代理")
+			return
+		}
+		settings := dto(d)
+		settings["site_proxies"] = proxies
 		writeJSON(w, http.StatusOK, map[string]any{
-			"settings":             dto(d),
+			"settings":             settings,
 			"ffmpeg_available":     ffmpegAvailable(d.FFmpegPath),
 			"site_quality_options": siteQualityOptionsByID(),
 		})
@@ -111,6 +118,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			Concurrency      *int                                `json:"concurrency"`
 			ChunkConcurrency *int                                `json:"chunk_concurrency"`
 			ChunkThresholdMB *int                                `json:"chunk_threshold_mb"`
+			SiteProxies      *map[string]string                  `json:"site_proxies"`
 		}
 		if err := readJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -246,6 +254,16 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			d.ChunkThreshold = int64(*body.ChunkThresholdMB) << 20
 		}
 		values := d.Values()
+		if body.SiteProxies != nil {
+			proxies, err := s.siteProxySettingsEnc(*body.SiteProxies)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			for key, value := range proxies {
+				values[key] = value
+			}
+		}
 		if body.SyncSchedule != nil {
 			values[scheduler.Key] = schedule
 		}
@@ -256,8 +274,15 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if body.SyncSchedule != nil && s.scheduleUpdater != nil {
 			s.scheduleUpdater(plan)
 		}
+		proxies, err := s.siteProxySettings(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "无法读取站点代理")
+			return
+		}
+		settings := dto(d)
+		settings["site_proxies"] = proxies
 		writeJSON(w, http.StatusOK, map[string]any{
-			"settings":         dto(d),
+			"settings":         settings,
 			"ffmpeg_available": ffmpegAvailable(d.FFmpegPath),
 			"restart_hint":     "设置已保存，新任务立即生效",
 		})

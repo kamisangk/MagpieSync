@@ -1034,16 +1034,16 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .account-copy strong { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; line-height: 18px; font-weight: 600; }
 .account-copy small { display: block; color: var(--muted); font-size: 11px; line-height: 16px; }
 .account-actions { display: flex; align-items: center; gap: 4px; }
-.account-proxy {
+.site-proxy {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  margin-top: 8px;
-  padding-left: 42px;
+  min-width: 0;
 }
-.account-proxy input { min-height: 32px; font-size: 12px; line-height: 16px; }
-.account-proxy .proxy-status { grid-column: 1 / -1; min-height: 16px; font-size: 11px; }
+.site-proxy input { min-width: 0; }
+.site-proxy .proxy-status { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.site-proxy .proxy-status:empty { display: none; }
 .site-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 
 /* Modal */
@@ -1113,8 +1113,6 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .method-tab.active { color: var(--ink); }
 .method-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
 .auth-fields { display: grid; gap: 16px; margin-top: 16px; }
-.proxy-block { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
-.proxy-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .proxy-status { color: var(--muted); font-size: 12px; line-height: 16px; }
 .proxy-status.ok { color: var(--green); }
 .proxy-status.error { color: var(--red); }
@@ -1414,7 +1412,6 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
   .site-card-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .site-card-row-label,
   .site-card-row > label:not(.chip-check) { padding-top: 0; }
-  .account-proxy { grid-template-columns: minmax(0, 1fr) auto; padding-left: 0; }
 }
 
 @media (max-width: 520px) {

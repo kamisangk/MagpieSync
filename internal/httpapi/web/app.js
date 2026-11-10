@@ -289,6 +289,7 @@ function renderSettingsAccounts(settings, options) {
   const current = (settings && settings.site_qualities) || {};
   const missing = (settings && settings.missing_check) || {};
   const archiveSettings = (settings && settings.archive) || {};
+  const siteProxies = (settings && settings.site_proxies) || {};
   const accounts = state.accounts || [];
   wrap.innerHTML = sites.map((site) => {
     const siteAccounts = accounts.filter((account) => account.site === site.id);
@@ -314,15 +315,9 @@ function renderSettingsAccounts(settings, options) {
             <button class="icon-btn" type="button" aria-label="删除账户" title="删除账户" data-delete-account="${account.id}" data-account-name="${esc(accountName(account))}">${icon("trash")}</button>
           </div>
         </div>
-        <div class="account-proxy">
-          <input type="text" data-account-proxy="${account.id}" data-proxy-original="${esc(account.proxy || "")}" value="${esc(account.proxy || "")}" placeholder="代理地址，留空直连" aria-label="${esc(accountName(account))} 的代理地址">
-          <button class="btn ghost small" type="button" data-proxy-test="${account.id}">测试</button>
-          <span class="proxy-status" role="status"></span>
-        </div>
       </div>`).join("");
     const body = connected
       ? `
-        <div class="site-card-body">
           <section class="site-card-section">
             <h3 class="site-card-section-title">下载偏好</h3>
             <div class="site-card-row">
@@ -367,8 +362,7 @@ function renderSettingsAccounts(settings, options) {
           <section class="site-card-section">
             <h3 class="site-card-section-title">账户</h3>
             <div class="account-list">${accountRows}</div>
-          </section>
-        </div>`
+          </section>`
       : "";
     return `
       <section class="site-card" id="settings-site-${esc(site.id)}" data-site-panel="${esc(site.id)}">
@@ -380,7 +374,20 @@ function renderSettingsAccounts(settings, options) {
           </div>
           ${status}
         </header>
-        ${body}
+        <div class="site-card-body">
+          <section class="site-card-section">
+            <h3 class="site-card-section-title">网络代理</h3>
+            <div class="site-card-row">
+              <label for="site-proxy-${esc(site.id)}">代理地址</label>
+              <div class="site-proxy">
+                <input id="site-proxy-${esc(site.id)}" type="text" data-site-proxy="${esc(site.id)}" value="${esc(siteProxies[site.id] || "")}" placeholder="留空直连，例如 socks5://127.0.0.1:1080" autocomplete="off" spellcheck="false">
+                <button class="btn ghost small" type="button" data-proxy-test="${esc(site.id)}">测试</button>
+                <span class="proxy-status" role="status" aria-live="polite"></span>
+              </div>
+            </div>
+          </section>
+          ${body}
+        </div>
         <footer class="site-card-foot">
           ${site.ready ? `<button class="btn ghost small" type="button" data-add-account="${esc(site.id)}">${connected ? "添加账户" : "连接站点"}</button>` : `<span class="field-note">该站点暂不支持连接。</span>`}
         </footer>
@@ -415,10 +422,17 @@ function bindSettingsAccounts() {
   });
   wrap.querySelectorAll("[data-proxy-test]").forEach((btn) => {
     btn.onclick = () => {
-      const item = btn.closest(".account-item");
-      const input = item ? item.querySelector("[data-account-proxy]") : null;
+      const item = btn.closest(".site-proxy");
+      const input = item ? item.querySelector("[data-site-proxy]") : null;
       const statusEl = item ? item.querySelector(".proxy-status") : null;
       testProxy(input ? input.value : "", statusEl, btn);
+    };
+  });
+  wrap.querySelectorAll("[data-site-proxy]").forEach((input) => {
+    input.oninput = () => {
+      const status = input.closest(".site-proxy").querySelector(".proxy-status");
+      status.textContent = "";
+      status.className = "proxy-status";
     };
   });
   wrap.querySelectorAll("[data-relogin-account]").forEach((btn) => {
@@ -452,12 +466,10 @@ function readMissingCheck() {
   return out;
 }
 
-function readProxyChanges() {
-  const out = [];
-  $$("#set-site-accounts [data-account-proxy]").forEach((input) => {
-    const original = input.dataset.proxyOriginal || "";
-    const next = input.value.trim();
-    if (next !== original) out.push({ id: Number(input.dataset.accountProxy), proxy: next, input });
+function readSiteProxies() {
+  const out = {};
+  $$("#set-site-accounts [data-site-proxy]").forEach((input) => {
+    out[input.dataset.siteProxy] = input.value.trim();
   });
   return out;
 }
@@ -2534,6 +2546,9 @@ function updateSettingsState() {
   if (!btn || !label) return;
   if (bar) bar.hidden = !state.settingsDirty && !state.settingsSaving;
   btn.disabled = !state.settingsDirty || state.settingsSaving || !scheduleValid;
+  $$("#set-site-accounts [data-site-proxy], #set-site-accounts [data-proxy-test]").forEach((control) => {
+    control.disabled = state.settingsSaving || control.dataset.proxyTesting === "true";
+  });
   renderScheduleStatus();
   if (state.settingsSaving) {
     label.textContent = "正在保存";
@@ -2583,7 +2598,6 @@ async function saveSettings(event) {
   }
   state.settingsSaving = true;
   updateSettingsState();
-  const proxyChanges = readProxyChanges();
   try {
     const d = await api("/api/settings", {
       method: "PUT",
@@ -2592,6 +2606,7 @@ async function saveSettings(event) {
         media_dir: mediaDir,
         ffmpeg: $("#set-ffmpeg").value.trim(),
         site_qualities: readSiteQualities(),
+        site_proxies: readSiteProxies(),
         missing_check: readMissingCheck(),
         concurrency,
         codecs,
@@ -2601,11 +2616,6 @@ async function saveSettings(event) {
         chunk_threshold_mb: chunkThreshold,
       },
     });
-    for (const change of proxyChanges) {
-      await api(`/api/accounts/${change.id}/proxy`, { method: "PUT", body: { proxy: change.proxy } });
-      const account = (state.accounts || []).find((a) => a.id === change.id);
-      if (account) account.proxy = change.proxy;
-    }
     state.settings = d.settings || state.settings;
     renderScheduleStatus();
     state.settingsDirty = false;
@@ -2923,7 +2933,10 @@ async function testProxy(proxy, statusSelector, buttonSelector, prefix = "") {
     }
     return false;
   }
-  if (button) button.disabled = true;
+  if (button) {
+    button.dataset.proxyTesting = "true";
+    button.disabled = true;
+  }
   if (status) {
     status.textContent = "正在测试";
     status.className = "proxy-status";
@@ -2942,7 +2955,10 @@ async function testProxy(proxy, statusSelector, buttonSelector, prefix = "") {
     }
     return false;
   } finally {
-    if (button) button.disabled = false;
+    if (button) {
+      delete button.dataset.proxyTesting;
+      button.disabled = state.settingsSaving;
+    }
   }
 }
 
@@ -2953,28 +2969,14 @@ async function openConnectModal(siteId, account = null, returnToManager = false)
     toast(`${site.name} 适配器尚未接入。`, true);
     return;
   }
-  let fullAccount = account;
-  let proxy = "";
-  if (account && account.id) {
-    try {
-      const d = await api("/api/accounts");
-      const found = (d.accounts || []).find((a) => a.id === account.id);
-      if (found) {
-        fullAccount = found;
-        proxy = found.proxy || "";
-      }
-    } catch {
-      // proxy can still be entered manually
-    }
-  }
   const methods = authMethods(site);
-  state.siteConnect = { siteId, accountId: account ? account.id : 0, method: methods[0].id, site, account: fullAccount };
+  state.siteConnect = { siteId, accountId: account ? account.id : 0, method: methods[0].id, site, account };
   const title = account ? `重新登录 · ${accountName(account)}` : `添加 ${site.name} 账户`;
   const hint = account && account.state === "needs_reauth"
     ? "当前账户登录已失效，本地数据仍然保留。请使用同一账号重新登录。"
     : (site.login && site.login.hint) || "";
-  const accountMeta = fullAccount
-    ? `<div class="modal-meta"><span>${esc(accountName(fullAccount))}</span>${fullAccount.state === "needs_reauth" ? '<span class="status-tag warn">登录已失效</span>' : '<span class="status-tag ok">账户正常</span>'}</div>`
+  const accountMeta = account
+    ? `<div class="modal-meta"><span>${esc(accountName(account))}</span>${account.state === "needs_reauth" ? '<span class="status-tag warn">登录已失效</span>' : '<span class="status-tag ok">账户正常</span>'}</div>`
     : "";
   openModal({
     title,
@@ -2986,27 +2988,10 @@ async function openConnectModal(siteId, account = null, returnToManager = false)
         ${methods.map((m, index) => `<button class="method-tab ${index === 0 ? "active" : ""}" type="button" data-connect-method="${m.id}">${m.label}</button>`).join("")}
       </div>
       <div id="connect-method-panel"></div>
-      <div class="proxy-block">
-        <label class="field">网络代理
-          <input id="connect-proxy" type="text" placeholder="留空直连，例如 socks5://127.0.0.1:1080" value="${esc(proxy)}">
-        </label>
-        <div class="proxy-actions">
-          <button class="btn ghost small" type="button" id="connect-proxy-test">测试代理</button>
-          <span id="connect-proxy-status" class="proxy-status"></span>
-        </div>
-        </div>
       <div class="modal-actions"><button class="btn ghost" type="button" id="connect-cancel">取消</button></div>`,
     onCancel: returnToManager ? openAccountManager : null,
     onMount: () => {
       $("#connect-cancel").onclick = cancelModal;
-      $("#connect-proxy-test").onclick = () => testProxy($("#connect-proxy").value, "#connect-proxy-status", "#connect-proxy-test");
-      $("#connect-proxy").addEventListener("input", () => {
-        const status = $("#connect-proxy-status");
-        if (status) {
-          status.textContent = "";
-          status.className = "proxy-status";
-        }
-      });
       $("#connect-method-tabs").querySelectorAll("[data-connect-method]").forEach((btn) => {
         btn.onclick = () => {
           if (state.qrTimer) {
@@ -3032,7 +3017,7 @@ function renderConnectMethod() {
     const qrHint = (site.login && site.login.qr && site.login.qr.hint) || "使用站点客户端扫码";
     panel.innerHTML = `
       <div class="qr-panel">
-        <div class="qr-box" id="qr-box"><div class="qr-placeholder">填写下方代理后生成二维码<br>${esc(qrHint)}</div></div>
+        <div class="qr-box" id="qr-box"><div class="qr-placeholder">${esc(qrHint)}</div></div>
         <p class="qr-status" id="qr-status"></p>
         <button class="btn primary" type="button" id="qr-generate">生成登录二维码</button>
       </div>`;
@@ -3092,13 +3077,11 @@ async function generateQR(siteId, accountId) {
     clearInterval(state.qrTimer);
     state.qrTimer = null;
   }
-  const proxyInput = $("#connect-proxy");
-  const proxy = proxyInput ? proxyInput.value.trim() : "";
   setConnectStatus("#qr-status", "正在生成二维码");
   const btn = $("#qr-generate");
   if (btn) btn.disabled = true;
   try {
-    const d = await api("/api/auth/qrcode", { method: "POST", body: { site: siteId, account_id: Number(accountId) || 0, proxy } });
+    const d = await api("/api/auth/qrcode", { method: "POST", body: { site: siteId, account_id: Number(accountId) || 0 } });
     const box = $("#qr-box");
     if (box) box.innerHTML = `<img src="${esc(d.image)}" alt="登录二维码" referrerpolicy="no-referrer">`;
     if (state.siteConnect) state.siteConnect.qrKey = d.key;
@@ -3165,7 +3148,7 @@ async function passwordLogin(siteId, accountId) {
   try {
     const d = await api("/api/auth/password", {
       method: "POST",
-      body: { site: siteId, account_id: Number(accountId) || 0, email: username, password, proxy: $("#connect-proxy").value.trim() },
+      body: { site: siteId, account_id: Number(accountId) || 0, email: username, password },
     });
     state.me = d.account || state.me;
     closeModal();
@@ -3194,7 +3177,6 @@ async function cookieLogin(siteId, accountId) {
         account_id: Number(accountId) || 0,
         cookie,
         user_agent: $("#connect-user-agent") ? $("#connect-user-agent").value.trim() : "",
-        proxy: $("#connect-proxy").value.trim(),
       },
     });
     state.me = d.account || state.me;

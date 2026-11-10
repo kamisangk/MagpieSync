@@ -18,6 +18,7 @@ import (
 	"magpiesync/internal/httpapi"
 	"magpiesync/internal/netproxy"
 	"magpiesync/internal/scheduler"
+	"magpiesync/internal/siteproxy"
 	"magpiesync/internal/sites"
 	_ "magpiesync/internal/sites/all"
 	"magpiesync/internal/store"
@@ -68,17 +69,6 @@ func run() error {
 		return fmt.Errorf("init vault: %w", err)
 	}
 
-	proxyForAccount := func(account *store.Account) (string, error) {
-		if account == nil || len(account.ProxyEnc) == 0 {
-			return "", nil
-		}
-		plainProxy, err := v.Decrypt(account.ProxyEnc, "proxy:"+account.Site+":"+account.RemoteUID)
-		if err != nil {
-			return "", fmt.Errorf("decrypt proxy: %w", err)
-		}
-		return string(plainProxy), nil
-	}
-
 	accountContext := func(ctx context.Context, accountID int64) (sites.AccountContext, error) {
 		account, err := st.GetAccountByID(ctx, accountID)
 		if err != nil {
@@ -88,7 +78,7 @@ func run() error {
 		if err != nil {
 			return sites.AccountContext{}, fmt.Errorf("decrypt %s credential: %w", account.Site, err)
 		}
-		proxyURL, err := proxyForAccount(account)
+		proxyURL, err := siteproxy.Load(ctx, st, v, account.Site)
 		if err != nil {
 			return sites.AccountContext{}, err
 		}
@@ -106,7 +96,7 @@ func run() error {
 		if err != nil {
 			return nil, err
 		}
-		proxyURL, err := proxyForAccount(account)
+		proxyURL, err := siteproxy.Load(ctx, st, v, account.Site)
 		if err != nil {
 			return nil, err
 		}

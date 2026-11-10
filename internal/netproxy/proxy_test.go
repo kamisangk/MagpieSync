@@ -1,6 +1,18 @@
 package netproxy
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestNormalizeErrorsDoNotExposeProxyCredentials(t *testing.T) {
+	for _, raw := range []string{"http://username:proxy-secret@host:invalid", "proxy-secret://host"} {
+		_, err := Normalize(raw)
+		if err == nil || strings.Contains(err.Error(), "proxy-secret") {
+			t.Fatalf("unsafe proxy error: %v", err)
+		}
+	}
+}
 
 func TestNormalize(t *testing.T) {
 	cases := []struct {

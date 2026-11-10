@@ -37,9 +37,9 @@ func writeAuthError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusBadGateway, err.Error())
 }
 
-// saveAccount persists a site-neutral login result. It owns credential
-// encryption, proxy encryption, identity migration and the active account.
-func (s *Server) saveAccount(ctx context.Context, site sites.Site, result *sites.LoginResult, proxyURL string, accountID int64) (*store.Account, error) {
+// saveAccount persists a site-neutral login result and owns credential
+// encryption, identity migration and the active account.
+func (s *Server) saveAccount(ctx context.Context, site sites.Site, result *sites.LoginResult, accountID int64) (*store.Account, error) {
 	if result == nil {
 		return nil, errors.New("登录未返回账户信息")
 	}
@@ -55,10 +55,6 @@ func (s *Server) saveAccount(ctx context.Context, site sites.Site, result *sites
 	if err != nil {
 		return nil, err
 	}
-	proxyEnc, err := s.encryptProxy(site.ID, uid, proxyURL)
-	if err != nil {
-		return nil, err
-	}
 	now := time.Now().Unix()
 	if accountID > 0 {
 		existing, err := s.store.GetAccountByID(ctx, accountID)
@@ -71,7 +67,7 @@ func (s *Server) saveAccount(ctx context.Context, site sites.Site, result *sites
 		if existing.RemoteUID != uid {
 			return nil, errAccountMismatch
 		}
-		if err := s.store.UpdateAccountLogin(ctx, accountID, name, result.AvatarURL, enc, proxyEnc, now); err != nil {
+		if err := s.store.UpdateAccountLogin(ctx, accountID, name, result.AvatarURL, enc, now); err != nil {
 			return nil, err
 		}
 		if err := s.setActiveAccount(ctx, accountID); err != nil {
@@ -80,7 +76,7 @@ func (s *Server) saveAccount(ctx context.Context, site sites.Site, result *sites
 		return s.store.GetAccountByID(ctx, accountID)
 	}
 
-	id, err := s.store.UpsertAccountWithProxy(ctx, site.ID, uid, name, result.AvatarURL, enc, proxyEnc, now)
+	id, err := s.store.UpsertAccount(ctx, site.ID, uid, name, result.AvatarURL, enc, now)
 	if err != nil {
 		return nil, err
 	}
