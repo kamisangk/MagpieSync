@@ -660,8 +660,6 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .source-delete-result { margin-bottom: 16px; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere; }
 #source-delete-error { margin-top: 16px; }
 .source-meta { color: var(--muted); font-size: 11px; line-height: 16px; }
-.source-progress-mini { width: 32px; height: 2px; background: var(--paper-deep); overflow: hidden; border-radius: 999px; }
-.source-progress-mini > * { display: block; height: 100%; background: var(--accent); transform-origin: left center; border-radius: 999px; }
 .source-group { margin-top: 16px; }
 .source-group-label {
   display: flex;

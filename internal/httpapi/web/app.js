@@ -1372,7 +1372,6 @@ function sourceRow(folder, site) {
   const archived = folder.state === "archived";
   const total = Number(folder.local_total || 0);
   const done = Number(folder.local_done || 0);
-  const ratio = total > 0 ? Math.min(1, done / total) : 0;
   const canDownload = Number(folder.item_count) > 0 && (total === 0 || done < total);
   const running = isSyncRunning();
   return `
@@ -1383,7 +1382,6 @@ function sourceRow(folder, site) {
           <span class="source-heading"><span class="source-name" title="${esc(folder.title)}">${esc(folder.title)}</span>${archived ? '<span class="source-archive-badge" title="远端列表中已无此来源，本地记录与已下载文件仍保留。">已归档</span>' : ""}</span>
           <span class="source-meta">${esc(folder.kind_label || folder.kind)} · ${formatCount(folder.item_count)} 条${total ? ` · 已备份 ${done}/${total}` : ""}</span>
         </span>
-        ${total ? `<span class="source-progress-mini"><span style="display:block;height:100%;background:var(--accent);transform:scaleX(${ratio});transform-origin:left center;"></span></span>` : ""}
       </button>
       <div class="source-more">
         <button class="source-more-btn" type="button" aria-label="来源操作" aria-expanded="false" data-source-menu="${folder.id}">${icon("dots-three")}</button>
