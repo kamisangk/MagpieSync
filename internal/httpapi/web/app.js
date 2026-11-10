@@ -305,7 +305,7 @@ function renderSettingsAccounts(settings, options) {
         <div class="account-item-head">
           ${avatarMark(account)}
           <div class="account-copy">
-            <strong>${esc(accountName(account))}${account.current ? '<span class="status-tag accent">当前</span>' : ""}${account.state === "needs_reauth" ? '<span class="status-tag danger">登录已失效</span>' : ""}</strong>
+            <strong>${esc(accountName(account))}${account.state === "needs_reauth" ? '<span class="status-tag danger">登录已失效</span>' : ""}</strong>
             <small>${esc(accountUID(account) || "账户")}</small>
           </div>
           <div class="account-actions">
