@@ -885,7 +885,8 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .settings-actions { align-items: center; }
 .settings-save-bar { position: sticky; bottom: 12px; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: min(100%, 720px); margin: 24px auto 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper-raised); box-shadow: 0 6px 20px rgba(35, 42, 36, .08); }
 .settings-site-picker { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
-.settings-site-picker select { min-width: min(260px, 60%); }
+.settings-site-picker > span { flex: 0 0 auto; white-space: nowrap; }
+.settings-site-picker select { flex: 1 1 auto; width: 0; min-width: 0; }
 .save-state { color: var(--muted); font-size: 12px; line-height: 16px; }
 .save-state.dirty { color: var(--amber); }
 .settings-layout {
@@ -922,7 +923,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
   background: var(--accent);
 }
 .settings-body { min-width: 0; max-width: 760px; }
-.settings-panel { padding-top: 20px; border-top: 1px solid var(--ink); animation: view-in 400ms var(--ease); }
+.settings-panel { padding-top: 0; animation: view-in 400ms var(--ease); }
 .settings-panel-head { margin-bottom: 20px; }
 .settings-panel-head h2 { font-size: 18px; line-height: 26px; font-weight: 650; }
 .settings-panel-head p { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 18px; text-wrap: pretty; }

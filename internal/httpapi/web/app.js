@@ -3439,7 +3439,10 @@ function bind() {
     btn.onclick = () => showSettingsSection(btn.dataset.settingsSection);
   });
   $("#view-settings").addEventListener("input", markSettingsDirty);
-  $("#view-settings").addEventListener("change", markSettingsDirty);
+  $("#view-settings").addEventListener("change", (event) => {
+    if (event.target.id === "settings-site-select") return;
+    markSettingsDirty();
+  });
 
   $("#sync-indicator").onclick = () => switchView("dashboard");
 

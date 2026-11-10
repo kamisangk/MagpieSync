@@ -23,6 +23,9 @@ assert.match(css, /.item-card { display: grid; grid-template-columns: 104px/);
 assert.match(css, /.run-mobile-list { display: block/);
 assert.match(css, /.settings-save-bar { position: sticky/);
 assert.match(app, /if \(select\) select\.value = state\.settingsSite;/);
+assert.match(css, /\.settings-site-picker > span \{ flex: 0 0 auto; white-space: nowrap; \}/);
+assert.match(css, /\.settings-panel \{ padding-top: 0; animation: view-in/);
+assert.ok(app.includes('if (event.target.id === "settings-site-select") return;'));
 
 const elements = new Map();
 function el(selector) {
