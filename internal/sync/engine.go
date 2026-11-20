@@ -167,7 +167,7 @@ func (e *Engine) run(ctx context.Context, runID, accountID int64, scope string) 
 		switch {
 		case ctx.Err() != nil:
 			state = "aborted"
-		case suspicious:
+		case suspicious && state == "success":
 			state = "suspicious"
 		case partial && state == "success":
 			state = "partial"
@@ -242,16 +242,17 @@ func (e *Engine) run(ctx context.Context, runID, accountID int64, scope string) 
 		items, complete, enumErr := e.enumerate(ctx, src, rf.RemoteID)
 		if enumErr != nil {
 			done++
-			partial = true
-			if errMsg == "" {
-				errMsg = fmt.Sprintf("%s: %v", rf.Title, enumErr)
-			}
+			folderError := fmt.Sprintf("%s: %v", rf.Title, enumErr)
 			if e.fatal(enumErr) || ctx.Err() != nil {
 				if e.isAuth(enumErr) {
 					e.markReauth(accountID)
 				}
-				state, errCode = "failed", classifyCode(enumErr)
+				state, errCode, errMsg = "failed", classifyCode(enumErr), folderError
 				return
+			}
+			partial = true
+			if errMsg == "" {
+				errMsg = folderError
 			}
 			e.progress(Progress{RunID: runID, Folder: rf.Title, FoldersDone: done, FoldersTotal: total, ItemsSeen: c.Seen, State: "running", Error: enumErr.Error()})
 			continue
@@ -277,13 +278,6 @@ func (e *Engine) run(ctx context.Context, runID, accountID int64, scope string) 
 		done++
 
 		e.progress(Progress{RunID: runID, Folder: rf.Title, FoldersDone: done, FoldersTotal: total, ItemsSeen: c.Seen, State: "running"})
-	}
-
-	if ctx.Err() != nil {
-		return
-	}
-	if errMsg != "" && state == "success" && !partial {
-		errMsg = ""
 	}
 }
 

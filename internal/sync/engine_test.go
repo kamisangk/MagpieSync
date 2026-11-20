@@ -11,8 +11,9 @@ import (
 )
 
 type fakeSource struct {
-	folders []RemoteFolder
-	items   map[string][]RemoteItem
+	folders    []RemoteFolder
+	items      map[string][]RemoteItem
+	pageErrors map[string]error
 }
 
 func (f *fakeSource) ListFolders(context.Context) ([]RemoteFolder, error) {
@@ -20,6 +21,9 @@ func (f *fakeSource) ListFolders(context.Context) ([]RemoteFolder, error) {
 }
 
 func (f *fakeSource) ListFolderPage(_ context.Context, remoteID string, page, pageSize int) (RemotePage, error) {
+	if err := f.pageErrors[remoteID]; err != nil {
+		return RemotePage{}, err
+	}
 	all := f.items[remoteID]
 	start := (page - 1) * pageSize
 	if start >= len(all) {
@@ -187,12 +191,24 @@ func TestEngineGuardSkipsRemovalOnSharpDrop(t *testing.T) {
 
 	src.items["1"] = first[:5]
 	run := mustRun(t, st, engine, accID)
-	if run.State != "suspicious" || run.ItemsMissing != 0 || run.ItemsRemoved != 0 {
-		t.Fatalf("guard run = %+v", run)
+	if run.State != "suspicious" || run.ErrorMessage != "big: item count dropped sharply, removal step skipped" || run.ItemsMissing != 0 || run.ItemsRemoved != 0 {
+		t.Errorf("guard run = %+v", run)
 	}
 	_, total, err := st.QueryItems(ctx, accID, store.ItemFilter{RemoteState: "active"})
 	if err != nil || total != 24 {
 		t.Fatalf("guard visibility=%d err=%v", total, err)
+	}
+
+	fatalErr := errors.New("fixture code unavailable")
+	src.folders = append(src.folders, RemoteFolder{RemoteID: "2", Title: "second"})
+	src.pageErrors = map[string]error{"2": fatalErr}
+	engine.SetFatalClassifier(func(err error) bool { return errors.Is(err, fatalErr) })
+	run = mustRun(t, st, engine, accID)
+	if run.State != "failed" || run.ErrorCode != "code unavailable" || run.ErrorMessage != "second: fixture code unavailable" {
+		t.Errorf("guard followed by fatal error = %+v", run)
+	}
+	if run.ItemsMissing != 0 || run.ItemsRemoved != 0 {
+		t.Errorf("guard recorded removals after fatal error: %+v", run)
 	}
 }
 
