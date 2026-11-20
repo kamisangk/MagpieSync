@@ -205,8 +205,13 @@ func (s *Server) handleLocalSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "无法保存密码")
 		return
 	}
-	if err := s.store.SetSettings(r.Context(), map[string]string{localPasswordSetting: encoded}, time.Now().Unix()); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	inserted, err := s.store.SetSettingIfAbsent(r.Context(), localPasswordSetting, encoded, time.Now().Unix())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "无法保存密码")
+		return
+	}
+	if !inserted {
+		writeError(w, http.StatusConflict, "本地密码已经设置")
 		return
 	}
 	token, err := s.auth.create()
