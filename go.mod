@@ -1,12 +1,12 @@
 module magpiesync
 
-go 1.26.1
+go 1.26.11
 
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	golang.org/x/net v0.49.0
+	golang.org/x/net v0.62.0
 	golang.org/x/time v0.16.0
 	modernc.org/sqlite v1.61.0
 )
