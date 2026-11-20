@@ -335,35 +335,35 @@ func (m *Manager) process(ctx context.Context, task *store.DownloadTask) {
 		}
 	}
 
-	outPath := buildOutputPath(settings, task)
-	if task.FilePath != outPath {
-		if _, statErr := os.Stat(outPath); statErr == nil {
-			outPath = strings.TrimSuffix(outPath, filepath.Ext(outPath)) + " [" + task.RemoteID + "]" + filepath.Ext(outPath)
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+	mediaRoot, err := openMediaRoot(settings.MediaDir)
+	if err != nil {
 		fail(err)
 		return
 	}
-	finalTmp := filepath.Join(tmpDir, "final.mp4")
+	defer mediaRoot.Close()
+	finalTmp := videoPath
 	if audioPath != "" {
+		finalName := filepath.Join(".magpiesync-tmp", strconv.FormatInt(task.ID, 10), "final.mp4")
+		// Retrying a merge must not truncate an inode linked to a finished output.
+		if err := mediaRoot.Remove(finalName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			fail(err)
+			return
+		}
+		finalTmp = filepath.Join(mediaRoot.Name(), finalName)
 		if err := m.merge(ctx, settings.FFmpegPath, videoPath, audioPath, finalTmp); err != nil {
 			fail(err)
 			return
 		}
-	} else {
-		finalTmp = videoPath
 	}
-	_ = os.Remove(outPath)
-	if err := os.Rename(finalTmp, outPath); err != nil {
-		if err := copyFile(finalTmp, outPath); err != nil {
-			fail(err)
-			return
-		}
+	published, err := publishDownload(ctx, mediaRoot, finalTmp, buildOutputPath(settings, task), task.RemoteID)
+	if err != nil {
+		fail(err)
+		return
 	}
-	size := fileSize(outPath)
+	outPath, size := published.path, published.size
 	sidecarErr := m.writeSidecars(ctx, client, settings, task, outPath, mediaHTTP)
 	if ctx.Err() != nil {
+		_ = published.remove()
 		if current, getErr := m.store.GetDownloadTask(context.Background(), task.ID); getErr == nil && current.State == "canceled" {
 			cleanup()
 		}

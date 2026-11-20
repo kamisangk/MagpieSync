@@ -13,9 +13,7 @@ import (
 	"magpiesync/internal/store"
 )
 
-// processDirect downloads one task from a site's official MP4 links. It does
-// not merge audio/video or write sidecars; the source is already a complete
-// file. All requests are GETs to the exact links exposed by the site.
+// processDirect downloads a complete file from a site's official MP4 links.
 func (m *Manager) processDirect(ctx context.Context, task *store.DownloadTask) {
 	settings, err := m.settings(ctx)
 	if err != nil {
@@ -105,32 +103,28 @@ func (m *Manager) processDirect(ctx context.Context, task *store.DownloadTask) {
 		return
 	}
 
-	outPath := buildOutputPath(settings, task)
-	if task.FilePath != outPath {
-		if _, statErr := os.Stat(outPath); statErr == nil {
-			outPath = trimExt(outPath) + " [" + task.RemoteID + "]" + filepath.Ext(outPath)
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+	mediaRoot, err := openMediaRoot(settings.MediaDir)
+	if err != nil {
 		fail(err)
 		return
 	}
-	_ = os.Remove(outPath)
-	if err := os.Rename(mediaPath, outPath); err != nil {
-		if err := copyFile(mediaPath, outPath); err != nil {
-			fail(err)
-			return
-		}
+	defer mediaRoot.Close()
+	published, err := publishDownload(ctx, mediaRoot, mediaPath, buildOutputPath(settings, task), task.RemoteID)
+	if err != nil {
+		fail(err)
+		return
 	}
+	outPath, size := published.path, published.size
 	if ctx.Err() != nil {
+		_ = published.remove()
 		if current, getErr := m.store.GetDownloadTask(context.Background(), task.ID); getErr == nil && current.State == "canceled" {
 			cleanup()
 		}
 		return
 	}
-	size := fileSize(outPath)
 	sidecarErr := m.writeDirectSidecars(ctx, settings, task, outPath, mediaHTTP)
 	if ctx.Err() != nil {
+		_ = published.remove()
 		if current, getErr := m.store.GetDownloadTask(context.Background(), task.ID); getErr == nil && current.State == "canceled" {
 			cleanup()
 		}
@@ -180,12 +174,4 @@ func pickDirectOption(options []DirectOption, requested int) (DirectOption, bool
 		}
 	}
 	return sorted[len(sorted)-1], true
-}
-
-func trimExt(path string) string {
-	ext := filepath.Ext(path)
-	if ext == "" {
-		return path
-	}
-	return path[:len(path)-len(ext)]
 }
