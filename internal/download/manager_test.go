@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"magpiesync/internal/sites"
@@ -31,7 +32,7 @@ func TestFetchOneResumesPartialFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &Manager{http: srv.Client()}
-	written, total, err := m.fetchOne(context.Background(), &store.DownloadTask{ID: 1, State: "running"}, srv.URL, dest, 0, 0, m.http, nil)
+	written, total, err := m.fetchOne(context.Background(), &store.DownloadTask{ID: 1, State: "running"}, srv.URL, dest, 0, m.http, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +42,110 @@ func TestFetchOneResumesPartialFile(t *testing.T) {
 	}
 	if string(data) != "abcdef" || written != 6 || total != 6 {
 		t.Fatalf("data=%q written=%d total=%d", data, written, total)
+	}
+}
+
+func TestFetchStreamRestartsWhenResumeRangeIsRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name, contentRange, body string
+		status                   int
+	}{
+		{"unsatisfiable", "bytes */4", "", http.StatusRequestedRangeNotSatisfiable},
+		{"even when local size matches", "bytes */6", "", http.StatusRequestedRangeNotSatisfiable},
+		{"wrong start", "bytes 2-5/6", "2345", http.StatusPartialContent},
+		{"ends before EOF", "bytes 3-4/6", "34", http.StatusPartialContent},
+		{"range and body length disagree", "bytes 3-5/6", "34", http.StatusPartialContent},
+		{"missing range", "", "345", http.StatusPartialContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const fresh = "new!"
+			offset := 3
+			if tc.name == "even when local size matches" {
+				offset = 6
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Header.Get("Range") {
+				case fmt.Sprintf("bytes=%d-", offset):
+					w.Header().Set("Content-Range", tc.contentRange)
+					w.WriteHeader(tc.status)
+					_, _ = w.Write([]byte(tc.body))
+				case "":
+					_, _ = w.Write([]byte(fresh))
+				default:
+					t.Errorf("unexpected Range: %q", r.Header.Get("Range"))
+					http.Error(w, "unexpected range", http.StatusBadRequest)
+				}
+			}))
+			defer srv.Close()
+
+			dest := filepath.Join(t.TempDir(), "stream")
+			if err := os.WriteFile(dest, bytes.Repeat([]byte("x"), offset), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			m := &Manager{}
+			total, err := m.fetchStream(context.Background(), &store.DownloadTask{ID: 1}, []string{srv.URL}, dest, 0, Settings{}, srv.Client(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(dest)
+			if err != nil || string(data) != fresh || total != int64(len(fresh)) {
+				t.Fatalf("data=%q total=%d read error=%v", data, total, err)
+			}
+		})
+	}
+}
+
+func TestFetchStreamFallsBackOnInvalidParallelResponse(t *testing.T) {
+	const payload = "abcdefgh"
+	for _, tc := range []struct {
+		name, contentRange, body string
+	}{
+		{"wrong start", "bytes 1-4/8", "bcde"},
+		{"wrong total", "bytes 0-3/9", "abcd"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetchedFull atomic.Bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var contentRange, body string
+				switch r.Header.Get("Range") {
+				case "bytes=0-0":
+					contentRange, body = "bytes 0-0/8", "a"
+				case "bytes=0-3":
+					contentRange, body = tc.contentRange, tc.body
+				case "bytes=4-7":
+					contentRange, body = "bytes 4-7/8", "efgh"
+				case "":
+					fetchedFull.Store(true)
+					_, _ = w.Write([]byte(payload))
+					return
+				default:
+					t.Errorf("unexpected Range: %q", r.Header.Get("Range"))
+					http.Error(w, "unexpected range", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Range", contentRange)
+				w.WriteHeader(http.StatusPartialContent)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+
+			dir := t.TempDir()
+			st, err := store.Open(filepath.Join(dir, "parallel.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			dest := filepath.Join(dir, "stream")
+			m := &Manager{store: st}
+			total, err := m.fetchStream(context.Background(), &store.DownloadTask{ID: 1}, []string{srv.URL}, dest, 0, Settings{ChunkConcurrency: 2, ChunkThreshold: 1}, srv.Client(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(dest)
+			if err != nil || string(data) != payload || total != int64(len(payload)) || !fetchedFull.Load() {
+				t.Fatalf("data=%q total=%d fetched full=%v read error=%v", data, total, fetchedFull.Load(), err)
+			}
+		})
 	}
 }
 

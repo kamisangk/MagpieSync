@@ -399,11 +399,11 @@ func (m *Manager) fetchStream(ctx context.Context, task *store.DownloadTask, url
 				_ = os.WriteFile(marker, []byte("1"), 0o644)
 				return total, nil
 			}
-			// A failed parallel probe/attempt must not leave a partial file
-			// that would make the serial fallback think it can resume.
-			_ = os.Remove(dest)
 		}
-		_, totalSize, err := m.fetchOne(ctx, task, rawURL, dest, base, 0, hc, headers)
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		_, totalSize, err := m.fetchOne(ctx, task, rawURL, dest, base, hc, headers)
 		if err == nil {
 			_ = os.WriteFile(marker, []byte("1"), 0o644)
 			return totalSize, nil
@@ -425,6 +425,7 @@ func (m *Manager) fetchParallel(ctx context.Context, task *store.DownloadTask, r
 		return 0, err
 	}
 	m.setMediaHeaders(probe, headers, task.Site)
+	probe.Header.Set("Accept-Encoding", "identity")
 	probe.Header.Set("Range", "bytes=0-0")
 	resp, err := hc.Do(probe)
 	if err != nil {
@@ -434,27 +435,28 @@ func (m *Manager) fetchParallel(ctx context.Context, task *store.DownloadTask, r
 	if resp.StatusCode != http.StatusPartialContent {
 		return 0, errors.New("server does not support ranges")
 	}
-	size := parseContentRangeTotal(resp.Header.Get("Content-Range"))
-	if size <= 0 || size < threshold {
+	start, end, size, ok := mediaContentRange(resp)
+	if !ok || start != 0 || end != 0 {
+		return 0, errInvalidMediaRange
+	}
+	if size < threshold || size < int64(concurrency) {
 		return 0, errors.New("file below chunk threshold")
 	}
 
-	f, err := os.OpenFile(dest, os.O_CREATE|os.O_RDWR, 0o644)
+	// Preallocated files can survive a crash with unwritten ranges. Keep them
+	// separate from serial downloads until every range has been verified.
+	parallelPath := dest + ".parallel"
+	f, err := os.OpenFile(parallelPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o644)
 	if err != nil {
 		return 0, err
 	}
+	defer os.Remove(parallelPath)
 	defer f.Close()
 	if err := f.Truncate(size); err != nil {
 		return 0, err
 	}
 
-	if size < int64(concurrency) {
-		return 0, errors.New("file too small for chunked download")
-	}
 	chunkSize := size / int64(concurrency)
-	if chunkSize < 1 {
-		chunkSize = 1
-	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var (
@@ -490,7 +492,7 @@ func (m *Manager) fetchParallel(ctx context.Context, task *store.DownloadTask, r
 		wg.Add(1)
 		go func(start, end int64) {
 			defer wg.Done()
-			err := m.fetchRange(ctx, rawURL, f, start, end, func(n int) {
+			err := m.fetchRange(ctx, rawURL, f, start, end, size, func(n int) {
 				mu.Lock()
 				written += int64(n)
 				report()
@@ -508,22 +510,27 @@ func (m *Manager) fetchParallel(ctx context.Context, task *store.DownloadTask, r
 	}
 	wg.Wait()
 	if firstErr != nil {
-		_ = os.Remove(dest)
 		return 0, firstErr
 	}
 	if written != size {
-		_ = os.Remove(dest)
 		return 0, fmt.Errorf("分片下载大小不匹配：%d/%d", written, size)
+	}
+	if err := f.Close(); err != nil {
+		return 0, err
+	}
+	if err := os.Rename(parallelPath, dest); err != nil {
+		return 0, err
 	}
 	return base + size, nil
 }
 
-func (m *Manager) fetchRange(ctx context.Context, rawURL string, f *os.File, start, end int64, add func(int), hc *http.Client, headers http.Header, siteID string) error {
+func (m *Manager) fetchRange(ctx context.Context, rawURL string, f *os.File, start, end, size int64, add func(int), hc *http.Client, headers http.Header, siteID string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return err
 	}
 	m.setMediaHeaders(req, headers, siteID)
+	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end-1))
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -532,6 +539,10 @@ func (m *Manager) fetchRange(ctx context.Context, rawURL string, f *os.File, sta
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusPartialContent {
 		return fmt.Errorf("分片请求失败：HTTP %d", resp.StatusCode)
+	}
+	first, last, total, ok := mediaContentRange(resp)
+	if !ok || first != start || last != end-1 || total != size {
+		return errInvalidMediaRange
 	}
 	expected := end - start
 	w := &rangeWriter{f: f, off: start, expected: expected, add: add}
@@ -587,22 +598,47 @@ func (m *Manager) setMediaHeaders(req *http.Request, headers http.Header, siteID
 	}
 }
 
-func parseContentRangeTotal(v string) int64 {
-	slash := strings.LastIndexByte(v, '/')
-	if slash < 0 || slash+1 >= len(v) {
-		return 0
+var errInvalidMediaRange = errors.New("下载服务器返回的字节范围无效")
+
+func mediaContentRange(resp *http.Response) (first, last, size int64, ok bool) {
+	unit, value, _ := strings.Cut(resp.Header.Get("Content-Range"), " ")
+	span, total, _ := strings.Cut(value, "/")
+	start, end, _ := strings.Cut(span, "-")
+	a, startErr := strconv.ParseUint(start, 10, 63)
+	b, endErr := strconv.ParseUint(end, 10, 63)
+	c, totalErr := strconv.ParseUint(total, 10, 63)
+	if !strings.EqualFold(unit, "bytes") || startErr != nil || endErr != nil || totalErr != nil || a > b || b >= c {
+		return 0, 0, 0, false
 	}
-	n, _ := strconv.ParseInt(v[slash+1:], 10, 64)
-	return n
+	if resp.ContentLength >= 0 && resp.ContentLength != int64(b-a+1) {
+		return 0, 0, 0, false
+	}
+	return int64(a), int64(b), int64(c), true
 }
 
-func (m *Manager) fetchOne(ctx context.Context, task *store.DownloadTask, rawURL, dest string, base, total int64, hc *http.Client, headers http.Header) (int64, int64, error) {
+func (m *Manager) fetchOne(ctx context.Context, task *store.DownloadTask, rawURL, dest string, base int64, hc *http.Client, headers http.Header) (int64, int64, error) {
 	offset := fileSize(dest)
+	written, total, err := m.fetchOneAt(ctx, task, rawURL, dest, base, offset, hc, headers)
+	if offset == 0 || !errors.Is(err, errInvalidMediaRange) {
+		return written, total, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	if err := os.Truncate(dest, 0); err != nil {
+		return 0, 0, err
+	}
+	return m.fetchOneAt(ctx, task, rawURL, dest, base, 0, hc, headers)
+}
+
+func (m *Manager) fetchOneAt(ctx context.Context, task *store.DownloadTask, rawURL, dest string, base, offset int64, hc *http.Client, headers http.Header) (int64, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 	m.setMediaHeaders(req, headers, task.Site)
+	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Del("Range")
 	if offset > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 	}
@@ -611,27 +647,31 @@ func (m *Manager) fetchOne(ctx context.Context, task *store.DownloadTask, rawURL
 		return 0, 0, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && offset > 0 {
-		return offset, base + offset, nil
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+	expectedSize := resp.ContentLength
+	switch resp.StatusCode {
+	case http.StatusRequestedRangeNotSatisfiable:
+		return 0, 0, errInvalidMediaRange
+	case http.StatusPartialContent:
+		first, last, size, ok := mediaContentRange(resp)
+		if !ok || first != offset || last != size-1 {
+			return 0, 0, errInvalidMediaRange
+		}
+		expectedSize = size
+	case http.StatusOK:
+		offset = 0
+	default:
 		return 0, 0, fmt.Errorf("下载失败：HTTP %d", resp.StatusCode)
 	}
-	appendMode := offset > 0 && resp.StatusCode == http.StatusPartialContent
-	if !appendMode {
-		offset = 0
-	}
-	if cl := resp.ContentLength; cl > 0 {
-		total = base + offset + cl
-	} else {
-		total = base + offset
+	var total int64
+	if expectedSize >= 0 {
+		total = base + expectedSize
 	}
 	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer f.Close()
-	if appendMode {
+	if offset > 0 {
 		if _, err := f.Seek(offset, io.SeekStart); err != nil {
 			return 0, 0, err
 		}
@@ -645,6 +685,9 @@ func (m *Manager) fetchOne(ctx context.Context, task *store.DownloadTask, rawURL
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			if expectedSize >= 0 && int64(n) > expectedSize-written {
+				return written, total, errInvalidMediaRange
+			}
 			if _, err := f.Write(buf[:n]); err != nil {
 				return written, total, err
 			}
@@ -674,10 +717,13 @@ func (m *Manager) fetchOne(ctx context.Context, task *store.DownloadTask, rawURL
 			return written, total, readErr
 		}
 	}
-	if total <= 0 {
-		total = base + written
+	if expectedSize >= 0 && written != expectedSize {
+		return written, total, errInvalidMediaRange
 	}
-	return written, total, nil
+	if err := f.Close(); err != nil {
+		return written, total, err
+	}
+	return written, base + written, nil
 }
 
 func (m *Manager) merge(ctx context.Context, ffmpegPath, video, audio, out string) error {
