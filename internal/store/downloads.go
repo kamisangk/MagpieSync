@@ -400,6 +400,20 @@ func (s *Store) FinishDownloadTask(ctx context.Context, id int64, state, filePat
 	return err
 }
 
+// CompleteDownloadTask records the output only while the task is running.
+func (s *Store) CompleteDownloadTask(ctx context.Context, id int64, filePath, warning string, quality int, codec string, size, now int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE download_tasks
+		SET state = 'done', file_path = ?, error = ?, actual_quality = ?, codec = ?,
+		    progress = 1, downloaded = ?, total_bytes = ?, finished_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'running'`, filePath, warning, quality, codec, size, size, now, now, id)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	return rows == 1, err
+}
+
 func (s *Store) ResetDownloadTask(ctx context.Context, id, now int64) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE download_tasks

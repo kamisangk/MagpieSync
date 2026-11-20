@@ -325,10 +325,9 @@ func (m *Manager) process(ctx context.Context, task *store.DownloadTask) {
 		return
 	}
 	audioPath := ""
-	audioTotal := int64(0)
 	if audio != nil {
 		audioPath = filepath.Join(tmpDir, "audio.m4s")
-		audioTotal, err = m.fetchStream(ctx, task, append([]string{audio.URL}, audio.BackupURLs...), audioPath, videoTotal, settings, mediaHTTP, nil)
+		_, err = m.fetchStream(ctx, task, append([]string{audio.URL}, audio.BackupURLs...), audioPath, videoTotal, settings, mediaHTTP, nil)
 		if err != nil {
 			fail(err)
 			return
@@ -360,27 +359,40 @@ func (m *Manager) process(ctx context.Context, task *store.DownloadTask) {
 		fail(err)
 		return
 	}
-	outPath, size := published.path, published.size
-	sidecarErr := m.writeSidecars(ctx, client, settings, task, outPath, mediaHTTP)
-	if ctx.Err() != nil {
-		_ = published.remove()
-		if current, getErr := m.store.GetDownloadTask(context.Background(), task.ID); getErr == nil && current.State == "canceled" {
+	sidecarErr := m.writeSidecars(ctx, client, settings, task, published.path, mediaHTTP)
+	m.completeDownload(ctx, task.ID, published, quality, codecName(video.CodecID), sidecarErr, cleanup)
+}
+
+func (m *Manager) completeDownload(ctx context.Context, id int64, output publishedDownload, quality int, codec, warning string, cleanup func()) {
+	completed, err := m.store.CompleteDownloadTask(ctx, id, output.path, warning, quality, codec, output.size, time.Now().Unix())
+	if !completed || err != nil {
+		if removeErr := output.remove(); removeErr != nil {
+			slog.Error("remove uncommitted download output", "id", id, "error", removeErr)
+		}
+		if err != nil && ctx.Err() == nil {
+			slog.Error("persist download completion", "id", id, "error", err)
+			if retryErr := m.store.RequeueDownloadTask(ctx, id, "无法保存下载结果，等待重试", time.Now().Unix()); retryErr == nil {
+				m.emit("download_enqueued", map[string]any{"id": id})
+			} else {
+				slog.Error("requeue download after persistence failure", "id", id, "error", retryErr)
+			}
+		}
+		if current, getErr := m.store.GetDownloadTask(context.WithoutCancel(ctx), id); getErr == nil && current.State == "canceled" {
 			cleanup()
 		}
 		return
 	}
 	cleanup()
-	_ = m.store.UpdateDownloadProgress(ctx, task.ID, 1, size, size, time.Now().Unix())
-	_ = m.store.FinishDownloadTask(ctx, task.ID, "done", outPath, sidecarErr, quality, codecName(video.CodecID), size, time.Now().Unix())
-	m.emit("download_done", m.taskEvent(task.ID, "done", quality, ""))
+	m.emit("download_done", m.taskEvent(id, "done", quality, ""))
 	m.emit("download_progress", map[string]any{
-		"id":             task.ID,
+		"id":             id,
 		"state":          "done",
 		"progress":       1,
-		"file_path":      outPath,
+		"file_path":      output.path,
 		"actual_quality": quality,
-		"codec":          codecName(video.CodecID),
-		"total_bytes":    videoTotal + audioTotal,
+		"codec":          codec,
+		"downloaded":     output.size,
+		"total_bytes":    output.size,
 	})
 }
 

@@ -114,35 +114,12 @@ func (m *Manager) processDirect(ctx context.Context, task *store.DownloadTask) {
 		fail(err)
 		return
 	}
-	outPath, size := published.path, published.size
 	if ctx.Err() != nil {
-		_ = published.remove()
-		if current, getErr := m.store.GetDownloadTask(context.Background(), task.ID); getErr == nil && current.State == "canceled" {
-			cleanup()
-		}
+		m.completeDownload(ctx, task.ID, published, opt.Quality, "mp4", "", cleanup)
 		return
 	}
-	sidecarErr := m.writeDirectSidecars(ctx, settings, task, outPath, mediaHTTP)
-	if ctx.Err() != nil {
-		_ = published.remove()
-		if current, getErr := m.store.GetDownloadTask(context.Background(), task.ID); getErr == nil && current.State == "canceled" {
-			cleanup()
-		}
-		return
-	}
-	cleanup()
-	_ = m.store.UpdateDownloadProgress(ctx, task.ID, 1, size, size, time.Now().Unix())
-	_ = m.store.FinishDownloadTask(ctx, task.ID, "done", outPath, sidecarErr, opt.Quality, "mp4", size, time.Now().Unix())
-	m.emit("download_done", m.taskEvent(task.ID, "done", opt.Quality, ""))
-	m.emit("download_progress", map[string]any{
-		"id":             task.ID,
-		"state":          "done",
-		"progress":       1,
-		"file_path":      outPath,
-		"actual_quality": opt.Quality,
-		"codec":          "mp4",
-		"total_bytes":    size,
-	})
+	sidecarErr := m.writeDirectSidecars(ctx, settings, task, published.path, mediaHTTP)
+	m.completeDownload(ctx, task.ID, published, opt.Quality, "mp4", sidecarErr, cleanup)
 }
 
 func directHeaders(values map[string]string) http.Header {
