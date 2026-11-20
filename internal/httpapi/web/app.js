@@ -33,6 +33,7 @@ const state = {
   settings: null,
   settingsDirty: false,
   settingsSaving: false,
+  settingsLoadSeq: 0,
   settingsSection: "general",
   accounts: [],
   authMode: "login",
@@ -2498,13 +2499,16 @@ function previewSchedule() {
 }
 
 async function loadSettings() {
-  if (state.settingsDirty) return;
+  if (state.settingsDirty || state.settingsSaving) return;
+  const request = ++state.settingsLoadSeq;
   try {
     if (!state.sites.length) await loadSites();
+    if (request !== state.settingsLoadSeq) return;
     const [d, accountData] = await Promise.all([
       api("/api/settings"),
       state.me ? api("/api/accounts") : Promise.resolve({ accounts: [] }),
     ]);
+    if (request !== state.settingsLoadSeq) return;
     state.settings = d.settings;
     $("#set-sync-schedule").value = d.settings.sync_schedule || "";
     $("#schedule-enabled").checked = !!d.settings.sync_schedule;
@@ -2524,12 +2528,13 @@ async function loadSettings() {
     state.settingsDirty = false;
     updateSettingsState();
   } catch (err) {
-    handleError(err);
+    if (request === state.settingsLoadSeq) handleError(err);
   }
 }
 
 function markSettingsDirty() {
   if (state.settingsSaving) return;
+  state.settingsLoadSeq++;
   state.settingsDirty = true;
   updateSettingsState();
 }
@@ -2546,7 +2551,7 @@ function updateSettingsState() {
   if (!btn || !label) return;
   if (bar) bar.hidden = !state.settingsDirty && !state.settingsSaving;
   btn.disabled = !state.settingsDirty || state.settingsSaving || !scheduleValid;
-  $$("#set-site-accounts [data-site-proxy], #set-site-accounts [data-proxy-test]").forEach((control) => {
+  $$("#view-settings input, #view-settings select:not(#settings-site-select), #set-site-accounts [data-proxy-test]").forEach((control) => {
     control.disabled = state.settingsSaving || control.dataset.proxyTesting === "true";
   });
   renderScheduleStatus();

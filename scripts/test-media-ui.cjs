@@ -110,7 +110,7 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
 (async () => {
   const settingsElements = new Map();
   const settingsElement = (id) => {
-    if (!settingsElements.has(id)) settingsElements.set(id, { hidden: false, disabled: false, value: "", textContent: "", style: {}, focus() {}, classList: { remove() {}, toggle() {} } });
+    if (!settingsElements.has(id)) settingsElements.set(id, { hidden: false, disabled: false, value: "", textContent: "", dataset: {}, style: {}, focus() {}, classList: { remove() {}, toggle() {} } });
     return settingsElements.get(id);
   };
   const settingsErrors = [];
@@ -118,23 +118,27 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   const proxyTestButton = { disabled: false, dataset: {} };
   const proxyStatus = { textContent: "", className: "" };
   const siteSelector = settingsElement("#settings-site-select");
+  const mediaDirInput = settingsElement("#set-media-dir");
+  const qualitySelect = settingsElement("#site-quality-example");
+  const archiveToggle = settingsElement("#site-archive-example");
   const settingsContext = vm.createContext({
-    state: { settingsDirty: false, settingsSaving: false, accounts: [{ id: 1 }] },
+    state: { settingsDirty: false, settingsSaving: false, settingsLoadSeq: 0, sites: [{ id: "example" }], accounts: [{ id: 1 }] },
     $: settingsElement,
     $$: (selector) => {
-      assert.equal(selector, "#set-site-accounts [data-site-proxy], #set-site-accounts [data-proxy-test]");
-      return [proxyInput, proxyTestButton];
+      assert.equal(selector, "#view-settings input, #view-settings select:not(#settings-site-select), #set-site-accounts [data-proxy-test]");
+      return [mediaDirInput, qualitySelect, archiveToggle, proxyInput, proxyTestButton];
     },
     renderScheduleStatus() {}, renderSettingsAccounts() {}, toast() {}, updateSettingsState() {},
+    previewSchedule() {}, showSettingsSection() {}, settingsSectionFromHash() {},
     readSiteProxies: () => ({ example: "http://proxy", unconnected: "" }),
     scheduleExpression: () => "", readSiteQualities: () => ({}), readMissingCheck: () => ({}),
     readSiteArchive: () => ({}), readSiteNaming: () => ({}),
     handleError: (error) => settingsErrors.push(error),
     api: async () => ({ settings: {}, ffmpeg_available: true }),
   });
-  const settingsStart = app.indexOf("function markSettingsDirty()");
+  const settingsStart = app.indexOf("async function loadSettings()");
   const settingsEnd = app.indexOf("/* Modals */", settingsStart);
-  vm.runInContext("let scheduleValid = true;\n" + app.slice(settingsStart, settingsEnd) + "globalThis.settingsUI = { state, markSettingsDirty, handleSettingsInput, updateSettingsState, saveSettings, setScheduleValid(value) { scheduleValid = value; } };", settingsContext);
+  vm.runInContext("let scheduleValid = true;\n" + app.slice(settingsStart, settingsEnd) + "globalThis.settingsUI = { state, loadSettings, markSettingsDirty, handleSettingsInput, updateSettingsState, saveSettings, setScheduleValid(value) { scheduleValid = value; } };", settingsContext);
   const settingsUI = settingsContext.settingsUI;
   vm.runInContext(app.slice(app.indexOf("async function testProxy("), app.indexOf("async function openConnectModal(")) + "globalThis.testProxy = testProxy;", settingsContext);
   const saveBar = settingsElement("#settings-save-bar");
@@ -151,7 +155,14 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   assert.equal(settingsUI.state.settingsDirty, true, "editing a site proxy dirties settings");
   settingsUI.state.settingsDirty = false;
   settingsUI.updateSettingsState();
-  settingsUI.markSettingsDirty();
+  let finishLoad;
+  settingsContext.api = () => new Promise((resolve) => { finishLoad = resolve; });
+  const loading = settingsUI.loadSettings();
+  mediaDirInput.value = "/draft";
+  settingsUI.handleSettingsInput({ target: { id: "set-media-dir" } });
+  finishLoad({ settings: { media_dir: "/stale" } });
+  await loading;
+  assert.equal(mediaDirInput.value, "/draft", "loading settings cannot overwrite a draft made during the request");
   assert.equal(saveBar.hidden, false);
   assert.equal(saveButton.disabled, false);
   settingsUI.setScheduleValid(false);
@@ -171,6 +182,9 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   assert.equal(saveButton.disabled, true);
   assert.equal(settingsElement("#settings-state").textContent, "正在保存");
   assert.equal(proxyInput.disabled, true, "pending save prevents edits that would be lost on rerender");
+  assert.equal(mediaDirInput.disabled, true);
+  assert.equal(qualitySelect.disabled, true);
+  assert.equal(archiveToggle.disabled, true);
   assert.equal(proxyTestButton.disabled, true, "pending save prevents new proxy tests");
   assert.equal(siteSelector.disabled, false, "site selection remains available during save");
   finishSave({ settings: {}, ffmpeg_available: true });
@@ -182,6 +196,7 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   assert.equal(saveBar.hidden, true, "successful settings save hides the bar");
   assert.equal(settingsUI.state.settingsDirty, false);
   assert.equal(proxyInput.disabled, false, "successful save restores proxy editing");
+  assert.equal(mediaDirInput.disabled, false);
   assert.equal(proxyTestButton.disabled, false);
   settingsUI.markSettingsDirty();
   const proxyError = new Error("settings save failed");
@@ -197,6 +212,7 @@ vm.runInContext(app.slice(quietStart, bulkStart) + app.slice(bulkStart, bulkEnd)
   assert.equal(saveButton.disabled, false);
   assert.equal(settingsElement("#set-media-dir").value, "/media");
   assert.equal(proxyInput.disabled, false, "failed save restores proxy editing for retry");
+  assert.equal(qualitySelect.disabled, false);
   assert.equal(proxyTestButton.disabled, false);
   let finishTest;
   settingsContext.api = () => new Promise((resolve) => { finishTest = resolve; });
