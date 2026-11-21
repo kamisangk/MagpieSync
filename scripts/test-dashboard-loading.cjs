@@ -3,7 +3,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const app = fs.readFileSync(path.resolve(__dirname, "../internal/httpapi/web/app.js"), "utf8").replace(/boot\(\);\s*$/, "");
+const web = path.resolve(__dirname, "../internal/httpapi/web");
+const app = fs.readFileSync(path.join(web, "app.js"), "utf8").replace(/boot\(\);\s*$/, "");
+const html = fs.readFileSync(path.join(web, "index.html"), "utf8");
 const overviewPath = "/api/overview";
 const runsPath = "/api/runs?limit=6";
 const foldersPath = "/api/folders";
@@ -48,6 +50,8 @@ async function verifyIndependentRendering() {
   ui.requests.get(runsPath)[0].resolve(recent);
   await tick();
   assert.match(ui.element("#recent-runs").innerHTML, /新增 17/, "recent runs render while overview, folders, and downloads are pending");
+  assert.match(ui.element("#recent-runs").innerHTML, /<details[^>]*>\s*<summary/);
+  assert.equal(ui.element("#recent-runs").innerHTML.match(/<time\b/g).length, 1, "a run shows its timestamp once");
   assert.match(ui.element("#stats").innerHTML, /skeleton-line/, "stats show their existing skeleton while loading");
   ui.requests.get(overviewPath)[0].resolve(metrics(41, true));
   await tick();
@@ -56,22 +60,25 @@ async function verifyIndependentRendering() {
   ui.requests.get(foldersPath)[0].resolve({ folders: [{ id: 10, last_full_sync_at: 1 }] });
   ui.requests.get(downloadsPath)[0].resolve({ counts: { failed: 2 } });
   await loading;
-  assert.match(ui.element("#dashboard-lede").textContent, /同步正在进行/);
+  assert.equal(ui.element("#progress").hidden, false);
   assert.match(ui.element("#attention-list").innerHTML, /2 个下载失败/);
 }
 
 async function verifyFailureIsolation() {
   const ui = setup();
   const loading = ui.loadDashboard();
-  ui.requests.get(overviewPath)[0].resolve(metrics(41));
+  assert.match(ui.element("#attention-list").innerHTML, /正在检查待处理事项/);
+  ui.requests.get(overviewPath)[0].resolve({ ...metrics(41), last_run: recent.runs[0] });
   await tick();
   assert.match(ui.element("#stats").innerHTML, /41<small>条/, "stats also render before the recent runs arrive");
-  assert.doesNotMatch(ui.element("#dashboard-lede").textContent, /0 个来源/, "a pending folder request must not report zero sources");
+  assert.match(ui.element("#recent-runs").innerHTML, /新增 17/, "overview provides the latest run while recent runs are pending");
   ui.requests.get(runsPath)[0].reject(new Error("runs unavailable"));
   ui.requests.get(foldersPath)[0].reject(new Error("folders unavailable"));
   ui.requests.get(downloadsPath)[0].reject(new Error("downloads unavailable"));
   await loading;
   assert.match(ui.element("#stats").innerHTML, /41<small>条/);
+  assert.match(ui.element("#recent-runs").innerHTML, /新增 17/, "latest run stays visible if recent runs cannot be loaded");
+  assert.match(ui.element("#attention-list").innerHTML, /暂时无法确认待处理事项/);
   assert.equal(ui.errors.some((error) => error.message === "folders unavailable"), true);
 }
 
@@ -82,10 +89,10 @@ async function verifyAttentionBeforeOverview() {
   ui.requests.get(downloadsPath)[0].resolve({ counts: {} });
   ui.requests.get(runsPath)[0].resolve(recent);
   await tick();
-  assert.doesNotMatch(ui.element("#dashboard-lede").textContent, /本地档案还是空的/, "pending overview must not look like an empty library");
+  assert.match(ui.element("#stats").innerHTML, /skeleton-line/, "pending overview must not look like an empty library");
   ui.requests.get(overviewPath)[0].resolve(metrics(41, true));
   await loading;
-  assert.match(ui.element("#dashboard-lede").textContent, /同步正在进行/);
+  assert.equal(ui.element("#progress").hidden, false);
   assert.doesNotMatch(ui.element("#attention-list").innerHTML, /还没有视频来源/, "overview running status refreshes the attention panel");
 }
 
@@ -121,6 +128,10 @@ async function verifyRefreshAndLogout() {
 }
 
 (async () => {
+  const dashboard = html.slice(html.indexOf('id="view-dashboard"'), html.indexOf('id="view-library"'));
+  assert.doesNotMatch(dashboard, /<h1|id="last-run-panel"/);
+  assert.equal(dashboard.match(/data-view="runs"/g).length, 1);
+  assert.ok(dashboard.indexOf('id="stats"') < dashboard.indexOf('id="recent-runs"'));
   await verifyIndependentRendering();
   await verifyFailureIsolation();
   await verifyAttentionBeforeOverview();

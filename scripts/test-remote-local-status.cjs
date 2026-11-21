@@ -25,7 +25,7 @@ const context = vm.createContext({
   document: { querySelector: el, querySelectorAll: () => [], addEventListener() {} },
 });
 vm.runInContext(source + `
-  globalThis.ui = { state, bind, syncFilters, loadItems, itemCard, localBadge, downloadTag, openItem, resetLibraryFilters, bindActionButtons, renderLastRun, renderRunsTable };
+  globalThis.ui = { state, bind, syncFilters, loadItems, itemCard, localBadge, downloadTag, openItem, resetLibraryFilters, bindActionButtons, renderRecentRuns, renderRunsTable };
   globalThis.calls = []; globalThis.errors = []; globalThis.dialogs = [];
   globalThis.reply = async () => ({items: [], total: 0, page: 1, page_size: 48});
   api = async (url, options) => { calls.push({url, options}); return reply(url, options); };
@@ -115,9 +115,11 @@ function defer() { let resolve, reject; const promise = new Promise((ok, fail) =
   const clear = element(); clear.dataset.action = 'clear-filters'; ui.bindActionButtons({ querySelectorAll: () => [clear] }); clear.onclick(); await Promise.resolve();
   assert.equal(params().get('folder_id'), '1'); assert.equal(params().get('remote_state'), ''); assert.equal(params().get('local_state'), ''); assert.equal(params().get('page'), '1');
 
-  reset(); const run = { state: 'success', items_missing: 2, items_removed: 1 };
-  ui.state.overview = { last_run: run }; ui.renderLastRun();
-  assert.match(el('#last-run-panel').innerHTML, /远端缺失待确认/); assert.match(el('#last-run-panel').innerHTML, /远端已移除/);
+  reset(); const run = { id: 1, state: 'success', items_missing: 2, items_removed: 1, error_message: '<站点错误>' };
+  ui.state.recentRuns = [run]; ui.renderRecentRuns();
+  const recentRun = el('#recent-runs').innerHTML;
+  assert.match(recentRun, /远端缺失待确认<[/]dt><dd>2<[/]dd>/); assert.match(recentRun, /远端已移除<[/]dt><dd>1<[/]dd>/);
+  assert.match(recentRun, /&lt;站点错误&gt;/);
   ui.state.runs = [run]; ui.renderRunsTable();
   assert.match(el('#runs-table-wrap').innerHTML, /远端缺失待确认 <b>2<[/]b>/); assert.match(el('#runs-table-wrap').innerHTML, /远端已移除 <b>1<[/]b>/);
   console.log('Remote/local UI checks passed: independent server filters, pagination reset, totals, separate badges, source-aware detail, legacy fallback, stale responses, filter resets and remote sync labels.');

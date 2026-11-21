@@ -84,40 +84,24 @@
           <div id="account-menu" class="account-menu" hidden></div>
         </div>
 
-        <section id="view-dashboard" class="view" hidden>
-          <header class="page-head">
-            <div class="page-head-copy">
-              <h1>总览</h1>
-              <p id="dashboard-lede" class="page-lede"></p>
-            </div>
-          </header>
-
+        <section id="view-dashboard" class="view" aria-labelledby="page-title" hidden>
           <div id="progress" class="progress-strip" hidden>
             <div class="progress-copy"><span id="progress-text"></span><span id="progress-pct" class="progress-pct"></span></div>
             <div class="progress-track"><div id="progress-fill"></div></div>
           </div>
 
-          <div class="dashboard-grid">
-            <section class="ledger" aria-labelledby="ledger-title">
-              <div class="section-head">
+          <section class="ledger surface" aria-labelledby="ledger-title">
+            <div class="section-head">
+              <div>
                 <h2 id="ledger-title">本地档案</h2>
-                <span class="section-note">跨站点汇总</span>
+                <p class="section-note">跨站点汇总</p>
               </div>
-              <div id="stats" class="ledger-list"></div>
-              <div class="ledger-foot">
-                <button class="text-link" id="ledger-open-library" type="button">查看全部视频<svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-right"></use></svg></button>
-              </div>
-            </section>
-            <section id="last-run-panel" class="last-run" aria-labelledby="last-run-title"></section>
-          </div>
+              <button class="text-link" id="ledger-open-library" type="button">查看全部视频<svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-right"></use></svg></button>
+            </div>
+            <div id="stats"></div>
+          </section>
 
           <div class="dashboard-columns">
-            <aside id="attention-panel" class="panel-flat attention" aria-labelledby="attention-title">
-              <div class="section-head">
-                <h2 id="attention-title">需要处理</h2>
-              </div>
-              <div id="attention-list" class="attention-list"></div>
-            </aside>
             <section class="panel-flat" aria-labelledby="recent-runs-title">
               <div class="section-head">
                 <h2 id="recent-runs-title">最近同步</h2>
@@ -125,6 +109,12 @@
               </div>
               <div id="recent-runs" class="runs-compact"></div>
             </section>
+            <aside id="attention-panel" class="panel-flat" aria-labelledby="attention-title">
+              <div class="section-head">
+                <h2 id="attention-title">需要处理</h2>
+              </div>
+              <div id="attention-list" class="attention-list"></div>
+            </aside>
           </div>
         </section>
 

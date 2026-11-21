@@ -19,8 +19,10 @@ const state = {
   itemDetailSeq: 0,
   overview: null,
   overviewSeq: 0,
-  recentRuns: [],
+  recentRuns: null,
+  recentRunsError: false,
   recentRunsSeq: 0,
+  attentionRequest: null,
   runs: [],
   downloadFilter: "all",
   downloads: [],
@@ -32,6 +34,7 @@ const state = {
   downloadsLoading: false,
   settingsSite: "",
   downloadStats: null,
+  downloadStatsAccountID: null,
   downloadInfo: null,
   downloadTimer: null,
   settings: null,
@@ -622,11 +625,14 @@ function showAuth(mode = "login", message = "") {
   state.me = null;
   state.sites = [];
   state.overview = null;
-  state.recentRuns = [];
+  state.recentRuns = null;
+  state.recentRunsError = false;
+  state.attentionRequest = null;
   state.folders = [];
   state.foldersAccountID = null;
   state.librarySummary = null;
   state.downloadStats = null;
+  state.downloadStatsAccountID = null;
   state.items = { items: [], total: 0, page: 1, page_size: 48 };
   state.progress = null;
   if (state.es) {
@@ -997,6 +1003,7 @@ function resetLibraryFilters() {
 
 async function loadDashboard() {
   if (!state.overview) renderStats(null);
+  if (!state.recentRuns) renderRecentRuns();
   await Promise.all([loadOverview(), loadRecentRuns(), loadDashboardAttention()]);
 }
 
@@ -1017,11 +1024,12 @@ async function loadOverview(accountID = state.me?.id) {
     if (!isCurrent()) return;
     if (!state.overview) {
       const stats = $("#stats");
-      if (stats) stats.innerHTML = '<p class="empty">无法读取总览统计。</p>';
+      if (stats) stats.innerHTML = '<p class="dashboard-status" role="status">无法读取总览统计。</p>';
       return;
     }
   }
   renderDashboard();
+  if (!state.recentRuns?.length) renderRecentRuns();
   renderAttention();
   renderProgress();
 }
@@ -1029,7 +1037,7 @@ async function loadOverview(accountID = state.me?.id) {
 async function loadRecentRuns() {
   const seq = ++state.recentRunsSeq;
   const accountID = state.me?.id;
-  let runs;
+  let runs = null;
   try {
     const d = await api("/api/runs?limit=6");
     runs = d.runs || [];
@@ -1038,24 +1046,30 @@ async function loadRecentRuns() {
   }
   if (seq !== state.recentRunsSeq || state.me?.id !== accountID) return;
   if (runs) state.recentRuns = runs;
+  state.recentRunsError = !runs;
   renderRecentRuns();
 }
 
 async function loadDashboardAttention() {
   const accountID = state.me?.id;
   if (!accountID) {
+    state.attentionRequest = null;
     renderAttention();
     return;
   }
-  await Promise.all([loadFolders(), loadDownloadsQuiet()]);
-  if (state.me?.id !== accountID) return;
-  renderDashboardLede();
+  const request = {};
+  state.attentionRequest = request;
   renderAttention();
+  await Promise.all([loadFolders(), loadDownloadsQuiet()]);
+  if (state.attentionRequest !== request) return;
+  state.attentionRequest = null;
+  if (state.me?.id === accountID) renderAttention();
 }
 
 async function loadDownloadsQuiet() {
   if (!state.me) {
     state.downloadStats = {};
+    state.downloadStatsAccountID = null;
     return;
   }
   try {
@@ -1064,8 +1078,10 @@ async function loadDownloadsQuiet() {
     const d = await api("/api/downloads?limit=1");
     if (seq !== state.downloadQuietSeq || state.me?.id !== accountID) return;
     state.downloadStats = d.counts || {};
+    state.downloadStatsAccountID = accountID;
     state.downloadInfo = d;
     updateNavCount();
+    if (state.view === "dashboard") renderAttention();
   } catch {
     // dashboard should still render when the queue is unavailable
   }
@@ -1083,42 +1099,17 @@ async function loadAllDownloadTasks(filter) {
 }
 
 function renderDashboard() {
-  renderDashboardLede();
   renderStats(state.overview);
-  renderLastRun();
   updateGlobalActions();
-}
-
-function renderDashboardLede() {
-  const d = state.overview;
-  const lede = $("#dashboard-lede");
-  if (lede) {
-    if (!d) {
-      lede.textContent = "";
-    } else if (!state.me) {
-      lede.textContent = Number(d.accounts) > 0
-        ? "已有账户，但当前没有活动账户。连接站点后即可继续同步。"
-        : "还没有连接任何站点。先添加一个账户，再开始第一次只读同步。";
-    } else if (d.running) {
-      lede.textContent = `同步正在进行。当前账户是 ${accountName(state.me)}，本机已经保存 ${formatCount(d.items)} 条视频。`;
-    } else if (Number(d.items) > 0) {
-      const sources = state.foldersAccountID === state.me.id
-        ? `，在资料库中查看它自己的 ${formatCount(state.folders.length)} 个来源。`
-        : "。";
-      lede.textContent = `本机共保存 ${formatCount(d.items)} 条视频，其中 ${formatCount(d.local_done)} 条已备份。当前账户是 ${accountName(state.me)}${sources}`;
-    } else {
-      lede.textContent = `当前账户是 ${accountName(state.me)}。本地档案还是空的，完成第一次同步后，收藏、稍后再看与播放列表会出现在这里。`;
-    }
-  }
 }
 
 function renderStats(d) {
   const el = $("#stats");
   if (!el) return;
   if (!d) {
-    el.innerHTML = Array.from({ length: 4 }).map(() => `
-      <div class="ledger-row"><dt><span class="skeleton-line" style="display:block;width:96px;"></span></dt><dd><span class="skeleton-line" style="display:block;width:56px;"></span></dd></div>
-    `).join("");
+    el.innerHTML = `<div class="ledger-list" role="status" aria-label="正在读取本地档案">${Array.from({ length: 4 }, () => `
+      <div class="ledger-row ledger-loading" aria-hidden="true"><span class="skeleton-line"></span><span class="skeleton-line"></span></div>
+    `).join("")}</div>`;
     return;
   }
   const rows = [
@@ -1127,68 +1118,54 @@ function renderStats(d) {
     ["视频条目", formatCount(d.items), "条"],
     ["已备份视频", formatCount(d.local_done), "条"],
   ];
-  el.innerHTML = rows.map(([label, value, unit]) => `
+  el.innerHTML = `<dl class="ledger-list">${rows.map(([label, value, unit]) => `
     <div class="ledger-row">
-      <span class="ledger-label">${label}</span>
-      <span class="ledger-value">${value}<small>${unit}</small></span>
-    </div>`).join("");
-}
-
-function renderLastRun() {
-  const el = $("#last-run-panel");
-  if (!el) return;
-  const run = state.overview?.last_run;
-  if (!run) {
-    el.innerHTML = `
-      <div class="section-head"><h2 id="last-run-title">上次同步</h2></div>
-      <div class="last-run-empty">
-        <p>${state.me ? "还没有同步记录。完成一次同步后，这里会显示来源、扫描与变更数量。" : "连接站点后，从一次只读同步开始。"}</p>
-        ${state.me
-          ? `<button class="btn ghost" type="button" data-action="sync">开始同步</button>`
-          : `<button class="btn ghost" type="button" data-action="manage">连接站点</button>`}
-      </div>`;
-    bindActionButtons(el);
-    return;
-  }
-  const changes = [
-    ["扫描", run.items_seen],
-    ["新增", run.items_added],
-    ["更新", run.items_updated],
-    ["远端缺失待确认", run.items_missing],
-    ["远端已移除", run.items_removed],
-  ];
-  el.innerHTML = `
-    <div class="section-head">
-      <h2 id="last-run-title">上次同步</h2>
-      ${runTag(run.state)}
-    </div>
-    <p class="last-run-time">${esc(formatTime(run.started_at))} · ${esc(accountLabel(run.account_id))} · ${run.trigger === "scheduled" ? "定时同步" : "手动同步"}</p>
-    <div class="last-run-metrics">
-      ${changes.map(([label, value]) => `<div><span>${label}</span><strong>${formatCount(value)}</strong></div>`).join("")}
-    </div>
-    ${run.error_message ? `<p class="last-run-error">${esc(run.error_message)}</p>` : ""}
-    <div class="ledger-foot"><button class="text-link" type="button" data-view="runs">查看同步记录${icon("arrow-right")}</button></div>`;
-  bindViewButtons(el);
+      <dt class="ledger-label">${label}</dt>
+      <dd class="ledger-value">${value}<small>${unit}</small></dd>
+    </div>`).join("")}</dl>`;
 }
 
 function renderRecentRuns() {
   const el = $("#recent-runs");
   if (!el) return;
-  if (!state.recentRuns.length) {
-    el.innerHTML = `<div class="empty">还没有同步记录。完成同步后会在这里保留最近六次结果。</div>`;
+  const latest = state.overview?.last_run;
+  const runs = state.recentRuns?.length ? state.recentRuns : latest ? [latest] : [];
+  if (!runs.length) {
+    if (state.recentRunsError) {
+      el.innerHTML = '<div class="dashboard-status" role="status">无法读取最近同步。</div>';
+      return;
+    }
+    if (!state.recentRuns) {
+      el.innerHTML = '<div class="dashboard-status" role="status">正在读取最近同步…</div>';
+      return;
+    }
+    el.innerHTML = `<div class="dashboard-status dashboard-runs-empty">还没有同步记录。${state.me && !isSyncRunning()
+      ? `<button class="text-link" type="button" data-action="sync">开始同步${icon("arrow-right")}</button>`
+      : ""}</div>`;
+    bindActionButtons(el);
     return;
   }
-  el.innerHTML = state.recentRuns.map((run) => `
-    <div class="run-compact-row">
-      <div class="run-compact-main">
-        <strong>${esc(accountLabel(run.account_id))}</strong>
-        <small>${esc(formatTime(run.started_at))} · 来源 ${formatCount(run.folders_done)}/${formatCount(run.folders_total)} · 新增 ${formatCount(run.items_added)}</small>
+  const expanded = new Set(Array.from(el.querySelectorAll("details[open]"), (row) => row.dataset.runId));
+  el.innerHTML = runs.map((run) => `
+    <details class="run-compact-row" data-run-id="${esc(run.id)}"${expanded.has(String(run.id)) ? " open" : ""}>
+      <summary>
+        <span class="run-compact-main">
+          <strong>${esc(accountLabel(run.account_id))}</strong>
+          <small><time>${esc(formatTime(run.started_at))}</time> · 来源 ${formatCount(run.folders_done)}/${formatCount(run.folders_total)} · 新增 ${formatCount(run.items_added)}</small>
+        </span>
+        <span class="run-compact-meta">${runTag(run.state)}${icon("caret-down")}</span>
+      </summary>
+      <div class="run-compact-detail">
+        <dl>
+          <div><dt>触发</dt><dd>${run.trigger === "scheduled" ? "定时" : "手动"}</dd></div>
+          <div><dt>扫描</dt><dd>${formatCount(run.items_seen)}</dd></div>
+          <div><dt>更新</dt><dd>${formatCount(run.items_updated)}</dd></div>
+          <div><dt>远端缺失待确认</dt><dd>${formatCount(run.items_missing)}</dd></div>
+          <div><dt>远端已移除</dt><dd>${formatCount(run.items_removed)}</dd></div>
+        </dl>
+        ${run.error_message ? `<p class="run-compact-error">${esc(run.error_message)}</p>` : ""}
       </div>
-      <div class="run-compact-meta">
-        ${runTag(run.state)}
-        <time>${esc(formatRelativeTime(run.started_at))}</time>
-      </div>
-    </div>`).join("");
+    </details>`).join("");
 }
 
 function renderAttention() {
@@ -1237,7 +1214,8 @@ function renderAttention() {
       priority: 1,
     });
   }
-  const failed = Number(state.downloadStats?.failed || 0);
+  const downloadsReady = state.downloadStatsAccountID === state.me?.id;
+  const failed = downloadsReady ? Number(state.downloadStats?.failed || 0) : 0;
   if (failed > 0) {
     issues.push({
       icon: "download-simple",
@@ -1251,6 +1229,11 @@ function renderAttention() {
   }
   issues.sort((a, b) => a.priority - b.priority);
   if (!issues.length) {
+    if (state.foldersAccountID !== state.me.id || !downloadsReady) {
+      const message = state.attentionRequest ? "正在检查待处理事项…" : "暂时无法确认待处理事项。";
+      el.innerHTML = '<div class="dashboard-status" role="status">' + message + '</div>';
+      return;
+    }
     el.innerHTML = `
       <div class="attention-item ok">
         ${icon("check")}
@@ -1966,6 +1949,7 @@ async function loadDownloads() {
   if (!state.me) {
     state.downloads = [];
     state.downloadStats = {};
+    state.downloadStatsAccountID = null;
     state.downloadInfo = null;
     state.downloadTotal = 0;
     renderDownloads();
@@ -1984,6 +1968,7 @@ async function loadDownloads() {
     if (seq !== state.downloadsSeq || state.me?.id !== accountID) return;
     state.downloads = d.tasks || [];
     state.downloadStats = d.counts || {};
+    state.downloadStatsAccountID = accountID;
     state.downloadInfo = d;
     state.downloadTotal = Number(d.total) || 0;
     state.downloadPage = Number(d.page) || 1;
@@ -2233,6 +2218,7 @@ async function loadRuns() {
     state.runs = d.runs || [];
     if (seq === state.recentRunsSeq) {
       state.recentRuns = state.runs.slice(0, 6);
+      state.recentRunsError = false;
       renderRecentRuns();
     }
   } catch (err) {
