@@ -10,11 +10,7 @@ import (
 func TestOpenAddsFolderItemLookupIndex(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy.db")
-	st, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := openUnversionedStore(t, path)
 	account, err := st.UpsertAccount(ctx, "synthetic-video", "legacy", "Legacy", "", nil, 1)
 	if err != nil {
 		t.Fatal(err)

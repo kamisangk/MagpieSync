@@ -1,3 +1,4 @@
+-- Goose migration 1 uses this baseline to initialize and adopt unversioned databases.
 CREATE TABLE IF NOT EXISTS accounts (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
     site                  TEXT    NOT NULL DEFAULT '',

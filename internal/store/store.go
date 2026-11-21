@@ -3,18 +3,16 @@ package store
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/gofrs/flock"
 	_ "modernc.org/sqlite"
 )
-
-//go:embed schema.sql
-var schemaSQL string
 
 var ErrNoAccount = errors.New("no account configured")
 
@@ -28,6 +26,20 @@ func Open(path string) (*Store, error) {
 			return nil, err
 		}
 	}
+	if path != "" && path != ":memory:" {
+		// Keep the file across runs so every process locks the same file.
+		lock := flock.New(path + ".migration.lock")
+		defer lock.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		locked, err := lock.TryLockContext(ctx, 50*time.Millisecond)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("acquire database migration lock: %w", err)
+		}
+		if !locked {
+			return nil, errors.New("could not acquire database migration lock")
+		}
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -35,8 +47,8 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL",
 		"PRAGMA busy_timeout=5000",
+		"PRAGMA journal_mode=WAL",
 		"PRAGMA foreign_keys=ON",
 		"PRAGMA synchronous=NORMAL",
 	} {
@@ -45,27 +57,11 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if err := execScript(db, schemaSQL); err != nil {
+	if err := migrateDatabase(context.Background(), db); err != nil {
 		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`UPDATE accounts SET proxy_enc = NULL WHERE proxy_enc IS NOT NULL`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("clear legacy account proxies: %w", err)
+		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 	return &Store{db: db}, nil
-}
-
-func execScript(db *sql.DB, script string) error {
-	for _, stmt := range strings.Split(script, ";") {
-		if strings.TrimSpace(stmt) == "" {
-			continue
-		}
-		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("schema: %w", err)
-		}
-	}
-	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }

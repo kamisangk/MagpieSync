@@ -10,10 +10,7 @@ import (
 func TestOpenClearsLegacyAccountProxies(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy.db")
-	st, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openUnversionedStore(t, path)
 	id, err := st.UpsertAccount(ctx, "synthetic-video", "legacy-user", "name", "", []byte("credential"), 100)
 	if err != nil {
 		st.Close()
