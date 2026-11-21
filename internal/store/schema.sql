@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS item_events (
 CREATE INDEX IF NOT EXISTS idx_items_account_state ON items(account_id, state);
 CREATE INDEX IF NOT EXISTS idx_items_account_author ON items(account_id, author_id);
 CREATE INDEX IF NOT EXISTS idx_folder_items_state ON folder_items(folder_id, state);
+CREATE INDEX IF NOT EXISTS idx_folder_items_item_id_state ON folder_items(item_id, state);
 CREATE INDEX IF NOT EXISTS idx_runs_account_started ON sync_runs(account_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_item ON item_events(item_id, created_at DESC);
 

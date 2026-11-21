@@ -5,6 +5,8 @@ const state = {
   view: "dashboard",
   sites: [],
   folders: [],
+  foldersSeq: 0,
+  foldersAccountID: null,
   librarySummary: null,
   libraryLoading: false,
   selectedSource: 0,
@@ -16,7 +18,9 @@ const state = {
   filters: { q: "", folder_id: "", remote_state: "", local_state: "", sort: "favorited" },
   itemDetailSeq: 0,
   overview: null,
+  overviewSeq: 0,
   recentRuns: [],
+  recentRunsSeq: 0,
   runs: [],
   downloadFilter: "all",
   downloads: [],
@@ -607,6 +611,9 @@ function setAuthError(message) {
 
 function showAuth(mode = "login", message = "") {
   state.authMode = mode;
+  state.overviewSeq++;
+  state.recentRunsSeq++;
+  state.foldersSeq++;
   state.downloadsSeq++;
   state.downloadQuietSeq++;
   state.downloadsLoading = false;
@@ -615,7 +622,11 @@ function showAuth(mode = "login", message = "") {
   state.me = null;
   state.sites = [];
   state.overview = null;
+  state.recentRuns = [];
   state.folders = [];
+  state.foldersAccountID = null;
+  state.librarySummary = null;
+  state.downloadStats = null;
   state.items = { items: [], total: 0, page: 1, page_size: 48 };
   state.progress = null;
   if (state.es) {
@@ -985,34 +996,61 @@ function resetLibraryFilters() {
 /* Dashboard */
 
 async function loadDashboard() {
+  if (!state.overview) renderStats(null);
+  await Promise.all([loadOverview(), loadRecentRuns(), loadDashboardAttention()]);
+}
+
+async function loadOverview(accountID = state.me?.id) {
+  const seq = ++state.overviewSeq;
+  const isCurrent = () => seq === state.overviewSeq && state.me?.id === accountID;
   try {
-    const overview = api("/api/overview");
-    const recent = api("/api/runs?limit=6").catch(() => ({ runs: [] }));
-    const folders = state.me ? loadFolders() : Promise.resolve();
-    const downloads = state.me ? loadDownloadsQuiet() : Promise.resolve();
-    const [ov, recentData] = await Promise.all([overview, recent, folders, downloads]);
+    const ov = await api("/api/overview");
+    if (!isCurrent()) return;
     state.overview = ov;
-    state.recentRuns = recentData.runs || [];
     if (ov.running && !state.progress) {
       state.progress = { state: "running", folders_done: 0, folders_total: 0, items_seen: 0 };
     }
     if (!ov.running && state.progress?.state === "running") state.progress = null;
   } catch (err) {
+    if (!isCurrent()) return;
     handleError(err);
+    if (!isCurrent()) return;
+    if (!state.overview) {
+      const stats = $("#stats");
+      if (stats) stats.innerHTML = '<p class="empty">无法读取总览统计。</p>';
+      return;
+    }
   }
   renderDashboard();
+  renderAttention();
   renderProgress();
-  updateSyncButtons();
 }
 
 async function loadRecentRuns() {
+  const seq = ++state.recentRunsSeq;
+  const accountID = state.me?.id;
+  let runs;
   try {
     const d = await api("/api/runs?limit=6");
-    state.recentRuns = d.runs || [];
+    runs = d.runs || [];
   } catch {
-    state.recentRuns = [];
+    // Keep the last successful list when a refresh fails.
   }
+  if (seq !== state.recentRunsSeq || state.me?.id !== accountID) return;
+  if (runs) state.recentRuns = runs;
   renderRecentRuns();
+}
+
+async function loadDashboardAttention() {
+  const accountID = state.me?.id;
+  if (!accountID) {
+    renderAttention();
+    return;
+  }
+  await Promise.all([loadFolders(), loadDownloadsQuiet()]);
+  if (state.me?.id !== accountID) return;
+  renderDashboardLede();
+  renderAttention();
 }
 
 async function loadDownloadsQuiet() {
@@ -1045,26 +1083,33 @@ async function loadAllDownloadTasks(filter) {
 }
 
 function renderDashboard() {
+  renderDashboardLede();
+  renderStats(state.overview);
+  renderLastRun();
+  updateGlobalActions();
+}
+
+function renderDashboardLede() {
   const d = state.overview;
   const lede = $("#dashboard-lede");
   if (lede) {
-    if (!state.me) {
-      lede.textContent = d && Number(d.accounts) > 0
+    if (!d) {
+      lede.textContent = "";
+    } else if (!state.me) {
+      lede.textContent = Number(d.accounts) > 0
         ? "已有账户，但当前没有活动账户。连接站点后即可继续同步。"
         : "还没有连接任何站点。先添加一个账户，再开始第一次只读同步。";
-    } else if (d && d.running) {
+    } else if (d.running) {
       lede.textContent = `同步正在进行。当前账户是 ${accountName(state.me)}，本机已经保存 ${formatCount(d.items)} 条视频。`;
-    } else if (d && (Number(d.items) || 0) > 0) {
-      lede.textContent = `本机共保存 ${formatCount(d.items)} 条视频，其中 ${formatCount(d.local_done)} 条已备份。当前账户是 ${accountName(state.me)}，在资料库中查看它自己的 ${formatCount(state.folders.length)} 个来源。`;
+    } else if (Number(d.items) > 0) {
+      const sources = state.foldersAccountID === state.me.id
+        ? `，在资料库中查看它自己的 ${formatCount(state.folders.length)} 个来源。`
+        : "。";
+      lede.textContent = `本机共保存 ${formatCount(d.items)} 条视频，其中 ${formatCount(d.local_done)} 条已备份。当前账户是 ${accountName(state.me)}${sources}`;
     } else {
       lede.textContent = `当前账户是 ${accountName(state.me)}。本地档案还是空的，完成第一次同步后，收藏、稍后再看与播放列表会出现在这里。`;
     }
   }
-  renderStats(d);
-  renderLastRun();
-  renderRecentRuns();
-  renderAttention();
-  updateGlobalActions();
 }
 
 function renderStats(d) {
@@ -1170,7 +1215,8 @@ function renderAttention() {
       priority: 0,
     });
   }
-  if (state.me && state.folders.length === 0 && !isSyncRunning()) {
+  const folders = state.foldersAccountID === state.me?.id ? state.folders : [];
+  if (state.me && state.foldersAccountID === state.me.id && !folders.length && !isSyncRunning()) {
     issues.push({
       icon: "database",
       title: "还没有视频来源",
@@ -1180,8 +1226,8 @@ function renderAttention() {
       priority: 2,
     });
   }
-  const neverSynced = state.folders.filter((f) => !Number(f.last_full_sync_at)).length;
-  if (neverSynced > 0 && state.folders.length > 0) {
+  const neverSynced = folders.filter((f) => !Number(f.last_full_sync_at)).length;
+  if (neverSynced > 0) {
     issues.push({
       icon: "arrows-clockwise",
       title: `${neverSynced} 个来源从未同步`,
@@ -1237,8 +1283,10 @@ function updateGlobalActions() {
 /* Library */
 
 async function loadFolders() {
+  const seq = ++state.foldersSeq;
   if (!state.me) {
     state.folders = [];
+    state.foldersAccountID = null;
     state.librarySummary = null;
     renderSourcePanel();
     renderLibraryHeader();
@@ -1247,15 +1295,16 @@ async function loadFolders() {
   const accountID = state.me.id;
   try {
     const d = await api("/api/folders");
-    if (state.me?.id !== accountID) return;
+    if (seq !== state.foldersSeq || state.me?.id !== accountID) return;
     state.folders = d.folders || [];
+    state.foldersAccountID = accountID;
     state.librarySummary = d.library_summary || {};
     if (state.selectedSource && !state.folders.some((f) => f.id === state.selectedSource)) {
       state.selectedSource = 0;
       state.filters.folder_id = "";
     }
   } catch (err) {
-    if (state.me?.id !== accountID) return;
+    if (seq !== state.foldersSeq || state.me?.id !== accountID) return;
     handleError(err);
   }
   renderSourcePanel();
@@ -1267,6 +1316,7 @@ async function loadFolders() {
 async function loadLibrary() {
   if (!state.me) {
     state.folders = [];
+    state.foldersAccountID = null;
     state.librarySummary = null;
     state.items = { items: [], total: 0, page: 1, page_size: 48 };
     state.libraryLoading = false;
@@ -1524,7 +1574,7 @@ async function deleteArchivedSource(request) {
     toast(parts.join("，"), !!result.failed_files);
     await loadFolders();
     if (state.me?.id !== request.accountID) return;
-    await Promise.all([loadItems(), loadDownloads(), refreshDeletionOverview(request.accountID)]);
+    await Promise.all([loadItems(), loadDownloads(), loadOverview(request.accountID)]);
   } catch (err) {
     if (state.me?.id !== request.accountID || state.sourceDeletion !== request) return;
     if (err.status === 401) {
@@ -1542,17 +1592,6 @@ async function deleteArchivedSource(request) {
       state.modalBusy = false;
       $("#source-delete-confirm").textContent = "删除本地来源";
     }
-  }
-}
-
-async function refreshDeletionOverview(accountID) {
-  try {
-    const overview = await api("/api/overview");
-    if (state.me?.id !== accountID) return;
-    state.overview = overview;
-    renderDashboard();
-  } catch (err) {
-    if (state.me?.id === accountID) handleError(err);
   }
 }
 
@@ -2188,15 +2227,18 @@ async function downloadSource(folderID) {
 /* Runs */
 
 async function loadRuns() {
+  const seq = ++state.recentRunsSeq;
   try {
     const d = await api("/api/runs?limit=30");
     state.runs = d.runs || [];
-    state.recentRuns = state.runs.slice(0, 6);
+    if (seq === state.recentRunsSeq) {
+      state.recentRuns = state.runs.slice(0, 6);
+      renderRecentRuns();
+    }
   } catch (err) {
     handleError(err);
   }
   renderRunsTable();
-  renderRecentRuns();
 }
 
 function renderRunsTable() {

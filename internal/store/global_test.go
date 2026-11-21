@@ -3,8 +3,71 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestOpenAddsFolderItemLookupIndex(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	account, err := st.UpsertAccount(ctx, "synthetic-video", "legacy", "Legacy", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	folders, err := st.ReconcileFolders(ctx, account, []FolderInput{{RemoteID: "fav", Title: "Favorites"}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := folders["fav"]
+	statusItem(t, st, account, folder, "active", "active")
+	statusItem(t, st, account, folder, "removed", "removed")
+	statusItem(t, st, account, folder, "backup", "removed")
+	statusTask(t, st, account, "backup", 1, "done", "/backup.mp4", 1)
+	statusItem(t, st, account, 0, "orphan", "active")
+	if _, err := st.db.ExecContext(ctx, `DROP INDEX IF EXISTS idx_folder_items_item_id_state`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if count, err := reopened.CountItemsAll(ctx); err != nil || count != 3 {
+		t.Fatalf("CountItemsAll after reopening = %d, %v; want 3", count, err)
+	}
+
+	rows, err := reopened.db.QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT COUNT(*) FROM items i WHERE `+visibleItemSQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	var indexed bool
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+		indexed = indexed || strings.Contains(detail, "idx_folder_items_item_id_state (item_id=?)")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !indexed || strings.Contains(strings.Join(plan, "\n"), "SCAN v") {
+		t.Fatalf("visible item count should look up folder memberships by item_id: %v", plan)
+	}
+}
 
 func TestGlobalOverviewAndExportAcrossAccounts(t *testing.T) {
 	ctx := context.Background()
