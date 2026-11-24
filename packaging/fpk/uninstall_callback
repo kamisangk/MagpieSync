@@ -1,2 +1,18 @@
 #!/bin/bash
-exit 0
+set -eu
+
+[ "${wizard_delete_data:-}" = true ] || exit 0
+
+case "${TRIM_PKGVAR:-}" in
+  /*) ;;
+  *) echo "Invalid MagpieSync data path." > "${TRIM_TEMP_LOGFILE:-/dev/stderr}"; exit 1 ;;
+esac
+
+[ -e "$TRIM_PKGVAR" ] || exit 0
+if ! cd -P -- "$TRIM_PKGVAR" || [ "$PWD" = / ]; then
+  echo "Invalid MagpieSync data path." > "${TRIM_TEMP_LOGFILE:-/dev/stderr}"
+  exit 1
+fi
+
+# Remove only the package's fixed directories, without following media symlinks.
+rm -rf --preserve-root=all --one-file-system -- ./data ./media 2> "${TRIM_TEMP_LOGFILE:-/dev/stderr}"

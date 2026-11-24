@@ -1,10 +1,20 @@
 [
   {
-    "stepTitle": "卸载 MagpieSync",
+    "stepTitle": "数据处理",
     "items": [
       {
+        "type": "radio",
+        "field": "wizard_delete_data",
+        "label": "应用数据",
+        "initValue": "false",
+        "options": [
+          { "label": "保留数据", "value": "false" },
+          { "label": "删除数据", "value": "true" }
+        ]
+      },
+      {
         "type": "tips",
-        "helpText": "如果还在使用 MagpieSync 的默认媒体目录，卸载时其中的视频、封面和元数据可能会被飞牛一并删除。请先将已有文件移到独立的共享文件夹，再继续卸载。仅修改媒体目录设置不会移动已有文件。"
+        "helpText": "删除数据会清除配置、数据库和默认目录中的媒体。请先备份需要的文件。"
       }
     ]
   }
