@@ -46,6 +46,7 @@ cp "$root/packaging/fpk/upgrade_init" "$pkg/cmd/upgrade_init"
 cp "$root/packaging/fpk/upgrade_callback" "$pkg/cmd/upgrade_callback"
 cp "$root/packaging/fpk/uninstall_init" "$pkg/cmd/uninstall_init"
 cp "$root/packaging/fpk/uninstall_callback" "$pkg/cmd/uninstall_callback"
+cp "$root/packaging/fpk/wizard/uninstall" "$pkg/wizard/uninstall"
 chmod 0755 "$pkg/cmd/"*
 
 cat > "$pkg/config/privilege" <<'EOF'
